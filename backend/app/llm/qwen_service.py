@@ -11,15 +11,15 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 class QwenService:
     """Service for managing Qwen model loading and inference.
-    
+
     This service is responsible for:
     - Loading tokenizer and model once on startup
     - Providing methods for both streaming and non-streaming generation
     - Managing model lifecycle (load, unload)
     """
-    
+
     _instance: Optional["QwenService"] = None
-    
+
     def __init__(self):
         """Initialize the service (model not loaded yet)."""
         self.tokenizer = None
@@ -58,24 +58,16 @@ class QwenService:
             return self.tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip("\n")
 
         return self.tokenizer.decode(output_ids, skip_special_tokens=True).strip("\n")
-    
+
     @classmethod
     def get_instance(cls) -> "QwenService":
         """Get or create singleton instance."""
         if cls._instance is None:
             cls._instance = QwenService()
         return cls._instance
-    
+
     async def load(self, model_name: str, quantize: bool = False) -> None:
-        """Load tokenizer and model asynchronously.
-        
-        Args:
-            model_name: HuggingFace model identifier (e.g., "Qwen/Qwen3-14B")
-            quantize: Whether to use 4-bit quantization (requires bitsandbytes)
-            
-        Raises:
-            RuntimeError: If model loading fails
-        """
+        """Load tokenizer and model asynchronously."""
         self.model_name = model_name
         self.quantize = quantize
 
@@ -110,26 +102,14 @@ class QwenService:
             )
 
         self.is_loaded = True
-    
+
     def generate_once(
         self,
         messages: List[Dict[str, str]],
         max_new_tokens: int = 1024,
         enable_thinking: bool = False,
     ) -> tuple[str, float]:
-        """Generate a single response (non-streaming).
-        
-        Args:
-            messages: Chat history with role and content
-            max_new_tokens: Maximum tokens to generate
-            enable_thinking: Enable extended thinking mode
-            
-        Returns:
-            Tuple of (generated_text, elapsed_time_in_seconds)
-            
-        Raises:
-            RuntimeError: If model not loaded
-        """
+        """Generate a single response (non-streaming)."""
         self._require_loaded()
 
         model_inputs = self._prepare_model_inputs(messages, enable_thinking=enable_thinking)
@@ -143,26 +123,14 @@ class QwenService:
         output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist()
         answer = self._decode_answer(output_ids, enable_thinking=enable_thinking)
         return answer, elapsed
-    
+
     def stream_generate(
         self,
         messages: List[Dict[str, str]],
         max_new_tokens: int = 1024,
         enable_thinking: bool = False,
     ) -> Iterator[str]:
-        """Stream tokens as they are generated.
-        
-        Args:
-            messages: Chat history with role and content
-            max_new_tokens: Maximum tokens to generate
-            enable_thinking: Enable extended thinking mode
-            
-        Yields:
-            Individual tokens or chunks as they are generated
-            
-        Raises:
-            RuntimeError: If model not loaded
-        """
+        """Stream tokens as they are generated."""
         self._require_loaded()
 
         model_inputs = self._prepare_model_inputs(messages, enable_thinking=enable_thinking)
@@ -186,7 +154,6 @@ class QwenService:
             except BaseException as exc:  # pragma: no cover - surfaced after streaming
                 generation_error[0] = exc
 
-        start_time = time.time()
         thread = threading.Thread(target=_generate, daemon=True)
         thread.start()
 
@@ -194,21 +161,12 @@ class QwenService:
             yield chunk
 
         thread.join()
-        elapsed = time.time() - start_time
 
         if generation_error[0] is not None:
             raise generation_error[0]
 
-        # The elapsed time is intentionally measured here even though the method
-        # yields chunks. The caller can ignore it for now; it is kept for parity
-        # with the non-streaming path and future telemetry hooks.
-        _ = elapsed
-    
     async def close(self) -> None:
-        """Unload model and free resources.
-        
-        Call this during application shutdown.
-        """
+        """Unload model and free resources."""
         if self.model is not None:
             del self.model
         if self.tokenizer is not None:
@@ -222,7 +180,7 @@ class QwenService:
         self.model_name = None
         self.quantize = False
         self.is_loaded = False
-    
+
     def is_ready(self) -> bool:
         """Check if model is loaded and ready."""
         return self.is_loaded
