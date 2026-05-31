@@ -1,9 +1,11 @@
 """Configuration loader for the Qwen chat server."""
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from backend/.env_backend file
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env.backend")
 
 
 class Settings:
