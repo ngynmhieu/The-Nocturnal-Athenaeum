@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load environment variables from backend/.env_backend file
+# Load environment variables from backend/.env.backend file
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env.backend")
 
 
