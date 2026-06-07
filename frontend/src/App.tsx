@@ -1,14 +1,12 @@
-import './App.css'
+import { GradientBackground } from "@/shared/ui";
+import { ChatPage } from "@/modules/chat";
 
 function App() {
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>The Nocturnal Athenaeum</h1>
-        <p>Frontend starter — clean slate.</p>
-      </header>
-    </div>
-  )
+    <GradientBackground>
+      <ChatPage />
+    </GradientBackground>
+  );
 }
 
-export default App
+export default App;

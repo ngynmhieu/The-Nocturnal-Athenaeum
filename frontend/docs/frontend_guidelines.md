@@ -1,4 +1,4 @@
-# Frontend Architecture Plan
+# Frontend Guideline Plan
 
 This frontend should use a hybrid structure:
 
@@ -36,6 +36,24 @@ The goal is to keep the app easy to grow, easy to test, and easy to assign to te
 7. **Cross-module imports should be limited.**
    - Import from another module only through its public API.
    - Avoid deep imports into internal folders.
+
+8. **All colors must be defined in `index.css` and reused via CSS variables.**
+   - Never use raw color codes (hex, rgb, oklch) directly in components.
+   - Define all colors as CSS variables in `index.css` (e.g. `--color-primary: #7B3F1E`).
+   - In components, reference them via Tailwind's arbitrary property syntax or CSS: `text-[var(--color-primary)]`.
+   - If a new color is needed, add it to `index.css` first, then reuse the variable.
+
+10. **Use proportional units only — never fixed pixel values.**
+   - Use `rem`, `em`, `%`, `vw`, `vh`, `svh`, `fr`, or Tailwind's spacing scale (which is rem-based) for all sizing.
+   - Never use `px` for widths, heights, margins, paddings, font sizes, or positions.
+   - Exception: borders and outlines (`border-2`, `border`) may use `px` as they are decorative and do not affect layout flow.
+   - This ensures the UI scales correctly across screen sizes and respects user font preferences.
+
+9. **Imports must go through the module's public API, not deep into its folder.**
+   - Every folder that exposes components must have an `index.ts` that re-exports them.
+   - Consumers import from the folder level, not the file level.
+   - Correct: `import { GradientBackground } from "@/shared/ui"`
+   - Incorrect: `import { GradientBackground } from "@/shared/ui/GradientBackground"`
 
 ## Recommended Folder Structure
 
@@ -136,6 +154,23 @@ Main activities:
 - Combine multiple features and entities into one section of a screen
 - Reuse on more than one page when possible
 - Keep layout and screen composition manageable
+
+A widget that grows complex enough to have its own private sub-components should become a folder with a `components/` subfolder:
+
+```txt
+widgets/
+  ChatTranscript/
+    index.ts              ← public API, only export exposed here
+    ChatTranscript.tsx    ← the widget itself
+    components/
+      ChatMessage.tsx     ← private, only used by ChatTranscript
+      TypingIndicator.tsx
+      ScrollToBottom.tsx
+```
+
+- `components/` inside a widget is private — nothing outside the widget folder should import from it directly.
+- The widget's `index.ts` is the only public entry point.
+- Simple widgets with no sub-components remain as a single file (no folder needed).
 
 Example:
 - `orders/widgets/order-summary`

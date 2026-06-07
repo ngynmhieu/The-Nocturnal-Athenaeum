@@ -1,4 +1,8 @@
 @echo off
 setlocal
 cd /d %~dp0\frontend
-npm run dev
+echo Installing dependencies...
+call npm install
+echo Starting dev server...
+call npm run dev
+pause
