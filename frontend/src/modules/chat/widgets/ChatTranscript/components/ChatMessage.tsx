@@ -8,7 +8,6 @@ interface ChatMessageProps {
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === "user";
   const isError = message.status === "error";
-  const isStreaming = message.status === "streaming";
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
