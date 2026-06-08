@@ -1,12 +1,6 @@
-import { GradientBackground } from "@/shared/ui";
-import { ChatPage } from "@/modules/chat";
+import { RouterProvider } from "react-router";
+import { router } from "./app/router";
 
-function App() {
-  return (
-    <GradientBackground>
-      <ChatPage />
-    </GradientBackground>
-  );
+export default function App() {
+  return <RouterProvider router={router} />;
 }
-
-export default App;

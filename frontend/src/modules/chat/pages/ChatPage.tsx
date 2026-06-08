@@ -10,7 +10,7 @@ export function ChatPage() {
   const hasMessages = messages.length > 0;
 
   return (
-    <div className="relative h-screen overflow-hidden">
+    <div className="relative h-full overflow-hidden">
 
       {/* Empty state: greeting + input centered; exits with fade and slide up */}
       <AnimatePresence>
