@@ -1,4 +1,4 @@
-"""Pydantic models for chat API."""
+"""Pydantic models for the chat API boundary (request/response shapes)."""
 from typing import List, Optional
 from pydantic import BaseModel, Field
 

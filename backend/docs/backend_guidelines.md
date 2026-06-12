@@ -2,82 +2,112 @@
 
 ## Architecture Overview
 
-The backend is a FastAPI application that serves a local Qwen LLM over HTTP using Streamable HTTP — a single POST endpoint that always responds with an SSE stream. The app is structured into focused layers, each with a single responsibility.
+The backend is a FastAPI application built as a **modular monolith**. Code is organized **by feature (vertical slices)**, not by technical layer — mirroring the frontend's Feature-Sliced Design. Each feature owns its entire stack (routes, logic, schemas, persistence) in one folder, so a feature can be understood, changed, or removed in one place.
+
+Inside each module, the classic layering still applies: a thin API layer delegates to a service layer, which delegates to lower-level components (LLM engine, database, external APIs).
 
 ```
 backend/
 ├── app/
-│   ├── main.py            # Application factory, startup/shutdown lifecycle
-│   ├── api/               # Route handlers — thin orchestration layer
-│   ├── core/              # Cross-cutting config and infrastructure
-│   ├── llm/               # LLM engine — direct model interaction
-│   ├── schemas/           # Pydantic request/response models
-│   └── services/          # Business logic and orchestration
+│   ├── main.py            # Composition root: app factory, lifespan, includes module routers
+│   ├── core/              # Cross-cutting INFRASTRUCTURE (config, database, security)
+│   ├── shared/            # Reusable, business-agnostic code (base classes, exceptions, the LLM engine)
+│   └── modules/           # Features — one folder per business domain
+│       ├── chat/
+│       └── auth/
+├── docs/
 ├── run_backend.py         # Uvicorn entry point
 ├── requirements.txt
 └── .env.backend
 ```
 
-### Request Flow
+### Why feature-first, not layer-first
 
-```
-HTTP Request
-    └─→ api/ (route handler)
-            └─→ services/ (orchestration)
-                    └─→ llm/ (model inference)
-                            └─→ SSE stream (text/event-stream)
-```
+Organizing by layer (`api/`, `services/`, `schemas/` at the top level) smears every feature across many folders — to understand "chat" you would open four folders and mentally filter out everything else. Organizing by feature keeps each domain self-contained:
+
+| Question | Layer-first | Feature-first (this project) |
+|---|---|---|
+| "Where is all the chat code?" | spread across 4 folders | `modules/chat/` |
+| "Add a feature" | edit 4 shared folders | add 1 folder |
+| "Remove a feature" | hunt across folders | delete 1 folder |
+| Matches the frontend? | No | Yes |
 
 ---
 
-## Modules
+## Module Anatomy
 
-### `main.py`
-Application factory. Creates the `FastAPI` instance, registers middleware (CORS), attaches the router, and manages the startup/shutdown lifecycle — loading and unloading the model and wiring dependencies together. Nothing else belongs here.
+Every module under `modules/` follows the same flat, predictable shape. Not every file is required — add one when the feature needs it.
 
-### `api/`
-Route handlers. Each file maps HTTP endpoints to service calls. Files are named after the resource they expose (e.g., `agent.py` for chat/agent endpoints). See **API Layer Rules** below.
+```
+modules/chat/
+├── router.py          # HTTP endpoints — thin orchestration only
+├── service.py         # Business logic and orchestration
+├── schemas.py         # Pydantic models — API request/response shapes
+├── models.py          # Database models (tables) — persistence shapes
+├── dependencies.py    # FastAPI Depends providers + the module's public surface
+└── <component>.py     # Optional: extracted complex logic (e.g. prompt_builder.py)
+```
 
-### `core/`
-Cross-cutting infrastructure shared across the app.
+- **`router.py`** — Defines an `APIRouter`. Maps HTTP endpoints to service calls. No business logic.
+- **`service.py`** — The feature's business logic. Depends on injected components, never instantiates heavy ones itself.
+- **`schemas.py`** — Pydantic models for the **API boundary** (what comes in / goes out over HTTP).
+- **`models.py`** — Database table definitions for the **persistence boundary**. Kept separate from `schemas.py` so the API shape and the storage shape never blur.
+- **`dependencies.py`** — The module's **public surface**. Anything other modules are allowed to use (e.g. `auth`'s `get_current_user`) is exposed here.
 
-- **`config.py`** — Loads environment variables from `.env.backend` into a typed `Settings` object using Pydantic. All configuration (model name, quantization flag, host, port, tokens, HuggingFace token) is read here and nowhere else. Every other module imports from `core.config`, never reads env vars directly.
+Keep modules **flat**. Only break a piece into its own file/subfolder when it genuinely earns it (see *Component Extraction*). Do not replicate the frontend's deep `pages/widgets/features/entities` nesting on the backend.
 
-### `llm/`
-Low-level model interaction. Contains the `QwenService` singleton, which owns the model and tokenizer lifecycle: loading, inference (both one-shot and streaming), and teardown. This layer knows about tokenizer templates, quantization, threading for streaming, and special token post-processing. It does not know about HTTP, chat history, or application logic.
+---
 
-### `schemas/`
-Pydantic models for all API boundaries. Defines the shape of incoming requests (`ChatRequest`, `Message`) and outgoing responses (`ChatResponse`, `StreamChunk`). No logic lives here — only field definitions, types, validators, and defaults.
+## Folder Responsibilities
 
-### `services/`
-Business logic and orchestration between the API layer and lower-level components. See **Service Layer Rules** below.
+### `main.py` — Composition Root
+Creates the `FastAPI` instance, registers middleware (CORS), **includes each module's router**, and owns the startup/shutdown lifespan — loading and unloading the model, opening and closing the database, and wiring dependencies together. Modules never import `main.py`; the dependency only flows the other way.
+
+### `core/` — Infrastructure
+Cross-cutting infrastructure that must exist before any feature works. Not business logic.
+
+- **`config.py`** — Loads `.env.backend` into a typed Pydantic `Settings` object. All configuration (model name, quantization flag, host, port, tokens, DB URL, Supabase secrets) is read here and **nowhere else**. Every other module imports from `core.config`, never reads env vars directly.
+- **`database.py`** — Database engine/session setup and the session dependency.
+- **`security.py`** — JWT verification and shared auth dependencies.
+
+### `shared/` — Reusable, Business-Agnostic Code
+Code reused across modules that carries no business meaning: base classes, common exceptions, generic helpers, and the **LLM engine**.
+
+- **`llm/`** — The `QwenService` singleton: owns the model and tokenizer lifecycle (loading, one-shot and streaming inference, teardown). It knows about tokenizer templates, quantization, threading, and special-token post-processing. It does **not** know about HTTP, chat history, or application logic. It lives in `shared/` because it is a startup-lifecycle singleton (like the database) and any future feature — an agent, a summarizer — would reuse the same engine.
+
+  > If the engine ever becomes truly chat-only and no other feature could use it, it may move to `modules/chat/llm/`. Until then it is shared infrastructure.
+
+### `modules/` — Features
+Each module is a self-contained business domain (a *bounded context*): `chat`, `auth`, and so on. It holds its own routes, logic, schemas, and persistence, and exposes a clean public surface to the rest of the app.
 
 ---
 
 ## Rules
 
-### API Layer Rules
+### API Layer Rules (`router.py`)
 
-All HTTP interface definitions live in the `api/` folder.
-
-- Each file in `api/` should be immediately readable — a new team member must be able to understand what an endpoint does from a quick scan.
+- Each `router.py` must be immediately readable — a new team member should understand every endpoint at a glance.
 - Route handlers do **not** contain business logic. Their only jobs are:
   1. Extract and validate values from the request (path params, query params, body fields).
   2. Prepare any arguments the service needs.
   3. Call the appropriate service method.
   4. Return the service result as an HTTP response.
-- If you find yourself writing `if/else`, loops, or data transformations inside a route handler, that logic belongs in the service layer instead.
-- Dependency injection (FastAPI's `Depends`) is acceptable here to supply service instances.
+- Any `if/else`, loop, or data transformation inside a handler belongs in the service instead.
+- `Depends` is acceptable here to supply service instances and the current user.
 
-**Example — correct:**
+**Correct:**
 ```python
 @router.post("/chat")
-async def chat(request: ChatRequest, service: ChatService = Depends(get_chat_service)):
-    response = await service.generate_response(request.messages, request.max_tokens)
+async def chat(
+    request: ChatRequest,
+    service: ChatService = Depends(get_chat_service),
+    user: CurrentUser = Depends(get_current_user),
+):
+    response = await service.generate_response(user.id, request.messages, request.max_tokens)
     return ChatResponse(response=response.text, elapsed_time=response.elapsed)
 ```
 
-**Example — incorrect (logic in router):**
+**Incorrect (logic in router):**
 ```python
 @router.post("/chat")
 async def chat(request: ChatRequest, service: ChatService = Depends(get_chat_service)):
@@ -85,28 +115,19 @@ async def chat(request: ChatRequest, service: ChatService = Depends(get_chat_ser
     messages = [m for m in request.messages if m.content.strip()]
     if not messages:
         return ChatResponse(response="", elapsed_time=0)
-    response = await service.generate_response(messages, request.max_tokens)
-    return ChatResponse(response=response.text, elapsed_time=response.elapsed)
+    ...
 ```
 
----
+### Service Layer Rules (`service.py`)
 
-### Service Layer Rules
+The service sits between the router and everything below it (LLM, database, external APIs).
 
-The `services/` layer sits between the API layer and all other components (LLM, database, external APIs, etc.).
+- **Simple logic** goes directly in a service method.
+- **Complex logic** is extracted into a dedicated component (see below); the service composes it and stays thin.
+- A service depends only on interfaces it is **given via the constructor** — it never instantiates its own heavy dependencies (model, DB session, HTTP clients).
+- A service must not import from `router.py`. Dependencies flow downward only: `router → service → llm / db / components`.
 
-- **File naming**: every service file must end with `_service.py` (e.g., `chat_service.py`, `user_service.py`).
-- **Simple logic**: if the logic is straightforward, implement it directly in the service class method.
-- **Complex logic**: if a piece of logic grows complex enough to deserve isolation (e.g., a non-trivial message normalization pipeline, a retry/backoff strategy, a prompt-building algorithm), extract it into a dedicated component — a separate class or module — and have the service compose it. The service itself stays readable; the component owns the complexity.
-- A service class should only depend on interfaces it is given (constructor injection), never instantiate its own heavy dependencies.
-- Services must not import from `api/` — the dependency always flows downward: `api → services → llm / other components`.
-
-**When to extract a component:**
-- The logic has its own testable invariants.
-- The method is growing beyond ~20–30 lines and has distinct sub-steps.
-- The same logic is reused across multiple services.
-
-**Example — simple, stays in service:**
+**Simple — stays in the service:**
 ```python
 class ChatService:
     async def generate_response(self, messages, max_tokens=None):
@@ -117,19 +138,81 @@ class ChatService:
         return [{"role": m.role, "content": m.content} for m in messages]
 ```
 
-**Example — complex, extract to a component:**
+**Complex — extracted to a component:**
 ```python
-# services/prompt_builder.py  ← extracted component
+# modules/chat/prompt_builder.py  ← extracted component
 class PromptBuilder:
     def build(self, messages, system_prompt, context_window): ...
 
-# services/chat_service.py  ← service stays thin
+# modules/chat/service.py  ← service stays thin
 class ChatService:
     def __init__(self, llm: QwenService, prompt_builder: PromptBuilder):
         self._llm = llm
         self._prompt_builder = prompt_builder
-
-    async def generate_response(self, messages, max_tokens=None):
-        prompt = self._prompt_builder.build(messages, SYSTEM_PROMPT, MAX_CONTEXT)
-        return await self._llm.generate_once(prompt, max_tokens or settings.max_tokens)
 ```
+
+### Component Extraction
+
+Extract a piece of logic into its own class/module inside the feature when:
+- It has its own testable invariants.
+- A method grows beyond ~20–30 lines with distinct sub-steps.
+- The same logic is reused across services.
+
+The service composes the component; the component owns the complexity.
+
+### Module Boundary Rules
+
+- **Modules do not reach into each other's internals.** If `chat` needs the logged-in user, it imports `auth`'s public surface (`modules.auth.dependencies.get_current_user`) — never `auth`'s service internals. (This is the backend twin of the frontend's "import only through the public API" rule.)
+- A module's **public surface is its `dependencies.py`** (and its `schemas.py` types where another module legitimately needs them). Everything else is private.
+- Cross-module communication goes through that surface, or through events/shared abstractions in `shared/` — never through deep imports.
+
+### Schemas vs Models
+
+- **`schemas.py`** = Pydantic models = the **API boundary** (request/response shapes).
+- **`models.py`** = database table definitions = the **persistence boundary**.
+- Keep them in separate files. Convert between them in the service (or a small mapper component), not in the router.
+
+### Configuration
+
+All environment access goes through `core/config.py`. No module reads `os.environ` or `.env.backend` directly.
+
+---
+
+## Request Flow
+
+```
+HTTP Request
+  └─→ modules/<feature>/router.py        (thin orchestration)
+        └─→ modules/<feature>/service.py (business logic)
+              ├─→ shared/llm/            (model inference → SSE stream)
+              └─→ core/database          (persistence)
+```
+
+## Example: a Chat Message With Persistence
+
+- `modules/chat/router.py` receives the request, gets the current user via `Depends`, delegates to the service.
+- `modules/chat/service.py` saves the user message, streams the LLM response, then saves the assistant reply.
+- `shared/llm/` performs inference and streams tokens — unaware of HTTP or storage.
+- `modules/chat/models.py` defines the `conversations` and `messages` tables.
+- `modules/auth/dependencies.py` provides `get_current_user`, consumed by chat through auth's public surface.
+
+This keeps each endpoint clear and keeps every concern in the right place.
+
+---
+
+## When to Move Code
+
+- A helper used by only one feature → keep it inside that module.
+- A helper that becomes useful to several modules → promote it to `shared/`.
+- Infrastructure needed before features run → `core/`.
+- A service method carrying its own complex algorithm → extract a component.
+
+## What Success Looks Like
+
+A new developer should be able to answer instantly:
+- Which feature owns this code? → the module folder name.
+- Is this API shape or storage shape? → `schemas.py` vs `models.py`.
+- Is this reusable or feature-specific? → `shared/`/`core/` vs `modules/`.
+- Can another module use this? → only if it is in that module's `dependencies.py`.
+
+If the answers are obvious, the structure is working.

@@ -16,7 +16,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': {
+      // Backend serves prefix-less routes (/chat, /health). List each here
+      // so the dev server forwards them instead of serving the SPA shell.
+      '/chat': {
+        target: `http://${process.env.BACKEND_HOST ?? 'localhost'}:${process.env.BACKEND_PORT ?? '8000'}`,
+        changeOrigin: true,
+      },
+      '/health': {
         target: `http://${process.env.BACKEND_HOST ?? 'localhost'}:${process.env.BACKEND_PORT ?? '8000'}`,
         changeOrigin: true,
       },
