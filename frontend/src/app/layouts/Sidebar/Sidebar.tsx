@@ -12,7 +12,7 @@ export function Sidebar() {
     <motion.aside
       animate={{ width: open ? WIDTH_EXPANDED : WIDTH_COLLAPSED }}
       transition={SPRING}
-      className="relative flex flex-col h-full border-r border-[var(--owl-border)] bg-[var(--owl-parchment)]/60 backdrop-blur-sm overflow-hidden shrink-0 z-10"
+      className="relative flex flex-col h-full border-r border-[var(--owl-border)] overflow-hidden shrink-0 z-10"
     >
       <SidebarHeader open={open} toggle={toggle} />
       <SidebarContent open={open} />

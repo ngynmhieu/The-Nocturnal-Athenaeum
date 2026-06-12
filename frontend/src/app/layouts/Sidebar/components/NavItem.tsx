@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import type { LucideIcon } from "lucide-react";
 import { Link } from "react-router";
+import { Tooltip } from "@/shared/ui";
 import { FADE } from "../constants";
 
 interface NavItemProps {
@@ -13,18 +14,20 @@ interface NavItemProps {
 
 export function NavItem({ to, label, icon: Icon, active, open }: NavItemProps) {
   return (
+    <Tooltip content={label} side="right" disabled={open}>
     <Link
       to={to}
       className={`
         flex items-center gap-3 mx-2 px-[0.65rem] py-2 rounded-lg text-sm transition-colors
-        ${active
-          ? "bg-[var(--owl-brown)]/15 text-[var(--owl-brown-deep)] font-medium"
-          : "text-[var(--owl-brown)] hover:bg-[var(--owl-brown)]/10"
+        ${active && open
+          ? "bg-[var(--owl-brown)]/10 text-[var(--owl-brown-deep)] font-medium backdrop-blur-sm"
+          : "text-[var(--owl-brown)]"
         }
+        ${open ? "hover:bg-[var(--owl-brown-mid)]/15 hover:backdrop-blur-sm" : ""}
       `}
     >
       <div className="flex size-5 shrink-0 items-center justify-center">
-        <Icon size={18} aria-hidden="true" />
+        <Icon size={16} aria-hidden="true" />
       </div>
       <AnimatePresence>
         {open && (
@@ -40,5 +43,6 @@ export function NavItem({ to, label, icon: Icon, active, open }: NavItemProps) {
         )}
       </AnimatePresence>
     </Link>
+    </Tooltip>
   );
 }

@@ -10,13 +10,13 @@ interface SidebarHeaderProps {
 
 export function SidebarHeader({ open, toggle }: SidebarHeaderProps) {
   return (
-    <div className="flex items-center gap-3 px-3 py-3 border-b border-[var(--owl-border)] shrink-0">
+    <div className="flex items-center gap-3 px-3 py-3 shrink-0">
 
       {/* Owl — always a button, but non-interactive when open (PanelRight handles closing) */}
       <button
         onClick={toggle}
         aria-label="Open sidebar"
-        className={`group relative shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-[var(--owl-brown)] transition-colors ${!open ? "hover:bg-[var(--owl-brown)]/10" : "pointer-events-none"}`}
+        className={`group relative shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-[var(--owl-brown)] transition-colors ${!open ? "hover:bg-[var(--owl-brown)]/10 cursor-col-resize" : "pointer-events-none"}`}
       >
         <img
           src={owlIcon}
@@ -41,7 +41,7 @@ export function SidebarHeader({ open, toggle }: SidebarHeaderProps) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -32 }}
             transition={SPRING}
-            className="shrink-0 ml-auto w-8 h-8 flex items-center justify-center rounded-lg text-[var(--owl-brown)] hover:bg-[var(--owl-brown)]/10 transition-colors"
+            className="shrink-0 ml-auto w-8 h-8 flex items-center justify-center rounded-lg text-[var(--owl-brown)] hover:bg-[var(--owl-brown)]/10 transition-colors cursor-col-resize"
           >
             <PanelRight size={18} />
           </motion.button>
