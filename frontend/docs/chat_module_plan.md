@@ -8,7 +8,7 @@ This document covers the planned component structure, build order, and design de
 
 ---
 
-## Final Target Structure
+## Current Structure
 
 ```
 frontend/src/
@@ -29,10 +29,8 @@ frontend/src/
           ChatTranscript.tsx          ← scrollable conversation area
           components/
             ChatMessage.tsx           ← single message bubble (user or assistant)
-            TypingIndicator.tsx       ← animated dots while assistant generates
-            FollowUpChips.tsx         ← suggestion prompt chips (optional)
-        ChatInput.tsx                 ← message composer at the bottom (done)
-        ChatGreeting.tsx              ← greeting / empty state (done)
+        ChatInput.tsx                 ← message composer at the bottom
+        ChatGreeting.tsx              ← greeting / empty state
       features/
         index.ts
         send-message/
@@ -44,6 +42,19 @@ frontend/src/
           index.ts
           message.types.ts           ← Message, Role, MessageStatus types
           message.helpers.ts         ← formatters, id generators
+      shared/
+        index.ts                     ← public API for chat-internal shared code
+        useStreamBuffer.ts           ← smooths uneven SSE chunks into steady character output
+```
+
+## Planned Additions
+
+```
+widgets/
+  ChatTranscript/
+    components/
+      TypingIndicator.tsx            ← animated dots while assistant generates
+      FollowUpChips.tsx              ← suggestion prompt chips (optional)
 ```
 
 ---
@@ -74,7 +85,7 @@ frontend/src/
 - Renders a single message bubble
 - **User messages**: right-aligned, brown background, plain `whitespace-pre-wrap` text
 - **Assistant messages**: left-aligned, cream/glass background, content rendered via `MarkdownRenderer`
-- **Streaming**: cursor `<span>` rendered after `MarkdownRenderer` (separate from markdown content)
+- **Streaming**: uses `useStreamBuffer` to smooth uneven chunk sizes into a steady typewriter output
 - Supports states: `complete`, `streaming`, `error`
 
 ### `TypingIndicator` _(widget sub-component)_
@@ -92,11 +103,17 @@ frontend/src/
 - Owl mascot + app name + tagline
 
 ### `useSendMessage` _(feature)_
-- Calls `POST /api/v1/chat/stream` on the backend
+- Calls `POST /api/v1/chat` on the backend (single endpoint, always streams)
 - Reads the SSE stream and appends chunks to the message
 - Manages state: `idle`, `loading`, `streaming`, `error`
 - On success: appends assistant message to transcript
 - On error: shows error state on the last message
+
+### `useStreamBuffer` _(chat/shared)_
+- Accepts the raw `target` string (full content so far) and returns a `displayed` string
+- Releases characters at a fixed rate via `requestAnimationFrame` regardless of chunk size
+- When `target` resets or shortens (new message), syncs `displayed` immediately
+- Tune `CHARS_PER_FRAME` to control speed of the typewriter effect
 
 ### `message.types.ts` _(entity)_
 ```ts

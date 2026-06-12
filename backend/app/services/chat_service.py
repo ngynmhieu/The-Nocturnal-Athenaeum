@@ -15,25 +15,6 @@ class ChatService:
     def _normalize_messages(self, messages: Sequence[Mapping[str, str]]) -> List[MessageDict]:
         return [{"role": message["role"], "content": message["content"]} for message in messages]
 
-    def generate_response(
-        self,
-        messages: List[Dict[str, str]],
-        conversation_id: str = "default",
-        max_new_tokens: int = 1024,
-        enable_thinking: bool = False,
-    ) -> Dict[str, Any]:
-        response, elapsed_time = self.qwen_service.generate_once(
-            messages=self._normalize_messages(messages),
-            max_new_tokens=max_new_tokens,
-            enable_thinking=enable_thinking,
-        )
-
-        return {
-            "response": response,
-            "elapsed_time": elapsed_time,
-            "conversation_id": conversation_id,
-        }
-
     def stream_response(
         self,
         messages: Sequence[Mapping[str, str]],

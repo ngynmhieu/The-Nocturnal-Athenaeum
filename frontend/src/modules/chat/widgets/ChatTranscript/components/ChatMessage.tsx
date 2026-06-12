@@ -1,5 +1,6 @@
 import type { Message } from "../../../entities";
 import { MarkdownRenderer } from "@/shared/ui";
+import { useStreamBuffer } from "@/modules/chat/shared";
 
 interface ChatMessageProps {
   message: Message;
@@ -8,7 +9,7 @@ interface ChatMessageProps {
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === "user";
   const isError = message.status === "error";
-  const isStreaming = message.status === "streaming";
+  const displayedContent = useStreamBuffer(message.content);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -27,7 +28,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         ) : (
           <div className="prose-sm">
-            <MarkdownRenderer content={message.content} />
+            <MarkdownRenderer content={displayedContent} />
           </div>
         )}
         {isError && (

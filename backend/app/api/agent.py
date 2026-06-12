@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 import json
 
-from ..schemas import ChatRequest, ChatResponse
+from ..schemas import ChatRequest
 from ..services import ChatService
 
 _chat_service: ChatService = None
@@ -28,46 +28,23 @@ async def health_check(chat_service: ChatService = Depends(get_chat_service)):
     return chat_service.health_check()
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat")
 async def chat(
     request: ChatRequest,
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    try:
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+    messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
 
-        result = chat_service.generate_response(
-            messages=messages,
-            max_new_tokens=request.max_tokens or 1024,
-            enable_thinking=request.enable_thinking or False,
-        )
-
-        return ChatResponse(
-            response=result["response"],
-            elapsed_time=result["elapsed_time"],
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/chat/stream")
-async def chat_stream(
-    request: ChatRequest,
-    chat_service: ChatService = Depends(get_chat_service),
-):
     def stream_generator():
         try:
-            messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-
             for chunk in chat_service.stream_response(
                 messages=messages,
                 max_new_tokens=request.max_tokens or 1024,
                 enable_thinking=request.enable_thinking or False,
             ):
-                payload = json.dumps({"chunk": chunk})
-                yield f"data: {payload}\n\n"
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as e:
-            err = json.dumps({"error": str(e)})
-            yield f"event: error\ndata: {err}\n\n"
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(stream_generator(), media_type="text/event-stream")

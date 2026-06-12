@@ -60,22 +60,23 @@ The goal is to keep the app easy to grow, easy to test, and easy to assign to te
 ```txt
 frontend/src/
   app/
-    providers/
-    router/
-    styles/
+    layouts/        ← AppLayout (header + Outlet), Header, other global layout shells
+    router/         ← createBrowserRouter config; pages are registered here, not imported by layouts
+    providers/      ← React context providers, theme wrappers, etc.
+    styles/         ← global CSS, keyframes, Tailwind base overrides
   shared/
-    api/
-    ui/
-    lib/
-    config/
-    assets/
+    api/            ← base HTTP client, shared request helpers
+    ui/             ← design system primitives (Button, Input, Modal…)
+    lib/            ← generic hooks and utilities with no business logic
+    config/         ← environment variables, feature flags
+    assets/         ← global icons, logos, fonts
   modules/
     auth/
       pages/
       widgets/
       features/
       entities/
-      shared/
+      shared/       ← module-internal reusable code (not exposed app-wide)
     catalog/
       pages/
       widgets/
@@ -97,10 +98,16 @@ This is the application shell.
 
 Main activities:
 - Bootstrap providers
-- Configure routing
+- Configure routing — `router/` holds `createBrowserRouter`; pages slot in as children of layout routes
+- Define global layout shells — `layouts/` holds `AppLayout` (header + `<Outlet />`), `Header`, and any future layout variants
 - Register global styles
 - Initialize app-wide state or theme
-- Wire global error boundaries and layout wrappers
+- Wire global error boundaries
+
+Rules:
+- Layout components render `<Outlet />`, they do not import pages directly
+- Pages are registered only in the router config, never imported by `AppLayout` or `Header`
+- Adding a new page = one new route entry in `router/index.tsx`, nothing else changes
 
 Use `app/` for things that must exist before the rest of the UI works.
 
