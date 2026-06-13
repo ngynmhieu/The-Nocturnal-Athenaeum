@@ -4,11 +4,14 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from supabase import create_client
 
 from .core.config import settings
 from .shared.llm import QwenService
 from .modules.chat import router as chat_router
 from .modules.chat.service import ChatService
+from .modules.auth import router as auth_router
+from .modules.auth.service import AuthService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,6 +31,9 @@ async def lifespan(app: FastAPI):
     app.state.qwen_service = qwen_service
     app.state.chat_service = ChatService(qwen_service)
 
+    supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
+    app.state.auth_service = AuthService(supabase_client)
+
     logger.info("FastAPI app ready")
     yield
 
@@ -35,6 +41,7 @@ async def lifespan(app: FastAPI):
     await qwen_service.close()
     app.state.qwen_service = None
     app.state.chat_service = None
+    app.state.auth_service = None
 
 
 def create_app() -> FastAPI:
@@ -54,6 +61,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(chat_router)
+    app.include_router(auth_router)
 
     @app.get("/")
     async def root():

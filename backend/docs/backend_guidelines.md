@@ -66,9 +66,10 @@ Creates the `FastAPI` instance, registers middleware (CORS), **includes each mod
 ### `core/` — Infrastructure
 Cross-cutting infrastructure that must exist before any feature works. Not business logic.
 
-- **`config.py`** — Loads `.env.backend` into a typed Pydantic `Settings` object. All configuration (model name, quantization flag, host, port, tokens, DB URL, Supabase secrets) is read here and **nowhere else**. Every other module imports from `core.config`, never reads env vars directly.
-- **`database.py`** — Database engine/session setup and the session dependency.
-- **`security.py`** — JWT verification and shared auth dependencies.
+- **`config.py`** — Loads `.env.backend` into a typed Pydantic `Settings` object. All configuration (model name, quantization flag, host, port, tokens, database URL, auth keys) is read here and **nowhere else**. Every other module imports from `core.config`, never reads env vars directly.
+- **`database.py`** — Database engine/session setup and the `get_session` dependency. Exposes the `Base` class every ORM model inherits from.
+
+> JWT verification is **not** a `core/` concern. Token validation is delegated to the auth provider inside the `auth` module's service — there is no hand-rolled `security.py`. See `docs/modules/auth.md`.
 
 ### `shared/` — Reusable, Business-Agnostic Code
 Code reused across modules that carries no business meaning: base classes, common exceptions, generic helpers, and the **LLM engine**.
