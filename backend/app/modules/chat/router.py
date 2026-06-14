@@ -1,26 +1,14 @@
-"""FastAPI routes for chat agent."""
-from fastapi import APIRouter, Depends, HTTPException
+"""HTTP routes for the chat module — thin orchestration only."""
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 import json
 
-from ..schemas import ChatRequest
-from ..services import ChatService
+from backend.app.core.config import settings
+from .schemas import ChatRequest
+from .service import ChatService
+from .dependencies import get_chat_service
 
-_chat_service: ChatService = None
-
-
-def get_chat_service() -> ChatService:
-    if _chat_service is None:
-        raise HTTPException(status_code=503, detail="Chat service not initialized")
-    return _chat_service
-
-
-def set_chat_service(service: ChatService) -> None:
-    global _chat_service
-    _chat_service = service
-
-
-router = APIRouter(prefix="/api/v1", tags=["chat"])
+router = APIRouter(tags=["chat"])
 
 
 @router.get("/health")
@@ -33,13 +21,11 @@ async def chat(
     request: ChatRequest,
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-
     def stream_generator():
         try:
             for chunk in chat_service.stream_response(
-                messages=messages,
-                max_new_tokens=request.max_tokens or 1024,
+                messages=request.messages,
+                max_new_tokens=request.max_tokens or settings.max_tokens,
                 enable_thinking=request.enable_thinking or False,
             ):
                 yield f"data: {json.dumps({'chunk': chunk})}\n\n"

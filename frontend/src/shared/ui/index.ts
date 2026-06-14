@@ -1,4 +1,6 @@
 export { GradientBackground } from "./GradientBackground";
+export { LoadingDialog } from "./LoadingDialog";
+export { Dropdown, DropdownSection, DropdownItem } from "./Dropdown";
 export { Tooltip } from "./Tooltip";
 export { MarkdownRenderer } from "./MarkdownRenderer";
 export { ArrowUpIcon, StopIcon } from "./heroicons-animated";

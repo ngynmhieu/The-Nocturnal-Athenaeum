@@ -10,7 +10,7 @@ interface SidebarHeaderProps {
 
 export function SidebarHeader({ open, toggle }: SidebarHeaderProps) {
   return (
-    <div className="flex items-center gap-3 px-3 py-3 shrink-0">
+    <div className="flex items-center gap-3 px-[0.3rem] py-3 shrink-0">
 
       {/* Owl — always a button, but non-interactive when open (PanelRight handles closing) */}
       <button

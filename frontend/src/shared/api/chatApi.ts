@@ -1,4 +1,4 @@
-const BASE_URL = "/api/v1";
+import { fetchWithToken } from "@/shared/lib";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -26,7 +26,7 @@ export const chatApi = {
     body: ChatRequest,
     signal?: AbortSignal
   ): AsyncGenerator<StreamChunk> {
-    const res = await fetch(`${BASE_URL}/chat`, {
+    const res = await fetchWithToken("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -54,9 +54,6 @@ export const chatApi = {
         if (line.startsWith("data: ")) {
           const json = line.slice(6).trim();
           if (json) yield JSON.parse(json) as StreamChunk;
-        }
-        if (line.startsWith("event: error")) {
-          // next line will be the data
         }
       }
     }

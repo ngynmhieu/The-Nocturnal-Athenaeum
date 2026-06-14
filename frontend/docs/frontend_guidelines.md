@@ -65,9 +65,9 @@ frontend/src/
     providers/      ← React context providers, theme wrappers, etc.
     styles/         ← global CSS, keyframes, Tailwind base overrides
   shared/
-    api/            ← base HTTP client, shared request helpers
+    api/            ← endpoint callers only, one file per backend domain (no client/SDK creation)
+    lib/            ← generic infra: SDK clients, transport wrappers, hooks/utilities (no business logic)
     ui/             ← design system primitives (Button, Input, Modal…)
-    lib/            ← generic hooks and utilities with no business logic
     config/         ← environment variables, feature flags
     assets/         ← global icons, logos, fonts
   modules/
@@ -116,13 +116,55 @@ This is the global reusable layer.
 
 Main activities:
 - Design system components like button, input, modal, table
-- Shared API client and request helpers
+- Cross-cutting endpoint callers (`api/`) and the networking infra they use (`lib/`)
 - Utility functions and constants
 - Global configuration and environment access
 - Generic hooks that are not business-specific
 - Common assets such as icons or logos
 
 Use `shared/` only for code that is truly reusable across the whole app.
+
+#### Networking layers (`api` vs `lib` vs `config`)
+
+`shared/` networking code is split by **what layer it is**, not by feature name. One
+question decides where a file goes:
+
+| The file… | Goes in | Examples |
+|---|---|---|
+| creates a client/SDK instance, or wraps raw transport | `shared/lib/` | `supabase.ts` (the `createClient` singleton), `http.ts` (`fetchWithToken` — adds the session token to any request) |
+| names specific backend routes / payload shapes (an endpoint caller) **and is reused by more than one module** | `shared/api/`, **one file per backend domain** | `chat.ts` |
+| names specific backend routes but is used by **only one module** | that module (`modules/<m>/...`), **not** `shared/api` | auth's `/auth/me` caller → `modules/auth/features/sync-profile/` |
+| reads an environment variable | `shared/config/` | `env.ts` |
+
+Rules:
+
+- **`shared/api/` holds endpoint callers only** — never client or SDK creation. Each file
+  groups the calls for one backend domain (`chat.ts`, not a catch-all `api.ts`).
+- **`shared/lib/` holds the plumbing** those callers use: the SDK client instance and the
+  base transport wrapper. (`lib/` also keeps its existing role for generic hooks/utilities.)
+- Dependency direction is one-way: **`api → lib → config`**. An endpoint caller uses the
+  transport; the transport uses the client; the client reads config. Nothing flows back up,
+  and `api`/`lib` never import a business module.
+- **Module-specific** endpoints live in that module (`modules/<m>/...`), not in `shared/api`.
+  A caller only belongs in `shared/api` when it is genuinely reused across modules.
+
+#### All backend requests must carry the session token
+
+Every backend route (chat, auth, and any future route) requires a signed-in user.
+Use `fetchWithToken` from `shared/lib` instead of bare `fetch` for **all** backend calls.
+`fetchWithToken` reads the current Supabase session and attaches `Authorization: Bearer <token>` automatically — callers do not handle the token themselves.
+
+```ts
+// correct — token is attached automatically
+import { fetchWithToken } from "@/shared/lib";
+const res = await fetchWithToken("/some-route", { method: "POST", body: ... });
+
+// wrong — backend will reject with 401
+const res = await fetch("/some-route", { method: "POST", body: ... });
+```
+
+Never import `supabase` directly in a feature or entity just to read the session token — that
+belongs in `shared/lib/http.ts`. Features call `fetchWithToken`; the token plumbing stays in one place.
 
 ### `modules/`
 This is where business domains live.
@@ -219,6 +261,22 @@ Main activities:
 - Small reusable utilities that support that module only
 
 If something becomes useful across multiple modules, move it to root `shared/`.
+
+## Fast Refresh file rules
+
+Vite's Fast Refresh requires every file to export **only one kind of thing**. Mixing kinds in a single file breaks hot reload.
+
+| What the file exports | Extension | Naming |
+|---|---|---|
+| React components only | `.tsx` | `PascalCase.tsx` |
+| Hooks only | `.ts` | `useSomething.ts` |
+| Context object + types (no component, no hook) | `.ts` | `camelCase.ts` |
+| Utilities / constants | `.ts` | `camelCase.ts` |
+
+Rules:
+- **Never export a hook from a component file.** If a `.tsx` file has a component, move any `use...` functions out to their own `.ts` file.
+- **Never put a context object in the same file as the provider component.** Create a separate `camelCase.ts` for the context (e.g. `authContext.ts`) and a `PascalCase.tsx` for the provider (e.g. `AuthProvider.tsx`). Both import from the context file; neither imports from the other.
+- Barrel `index.ts` files are exempt — they only re-export and are not processed by Fast Refresh.
 
 ## Dependency Rules
 

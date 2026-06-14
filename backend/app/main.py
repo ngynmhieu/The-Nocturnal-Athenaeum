@@ -1,18 +1,47 @@
-"""FastAPI application factory and configuration."""
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+"""FastAPI application factory, lifespan, and module wiring (composition root)."""
+from contextlib import asynccontextmanager
 import logging
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from supabase import create_client
+
 from .core.config import settings
-from .llm.qwen_service import QwenService
-from .services.chat_service import ChatService
-from .api import agent
+from .shared.llm import QwenService
+from .modules.chat import router as chat_router
+from .modules.chat.service import ChatService
+from .modules.auth import router as auth_router
+from .modules.auth.service import AuthService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-qwen_service: QwenService = None
-chat_service: ChatService = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Load the model and wire services on startup; tear down on shutdown."""
+    logger.info("Starting up Qwen Chat Server...")
+
+    qwen_service = QwenService.get_instance()
+    await qwen_service.load(
+        model_name=settings.model_name,
+        quantize=settings.quantize,
+    )
+
+    app.state.qwen_service = qwen_service
+    app.state.chat_service = ChatService(qwen_service)
+
+    supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
+    app.state.auth_service = AuthService(supabase_client)
+
+    logger.info("FastAPI app ready")
+    yield
+
+    logger.info("Shutting down Qwen Chat Server...")
+    await qwen_service.close()
+    app.state.qwen_service = None
+    app.state.chat_service = None
+    app.state.auth_service = None
 
 
 def create_app() -> FastAPI:
@@ -20,6 +49,7 @@ def create_app() -> FastAPI:
         title="Qwen Chat Server",
         description="FastAPI server for Qwen language model chat with streaming support",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -30,34 +60,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.on_event("startup")
-    async def startup():
-        global qwen_service, chat_service
-
-        logger.info("Starting up Qwen Chat Server...")
-
-        qwen_service = QwenService.get_instance()
-        await qwen_service.load(
-            model_name=settings.model_name,
-            quantize=settings.quantize,
-        )
-
-        chat_service = ChatService(qwen_service)
-        agent.set_chat_service(chat_service)
-
-    @app.on_event("shutdown")
-    async def shutdown():
-        global qwen_service, chat_service
-
-        logger.info("Shutting down Qwen Chat Server...")
-
-        if qwen_service:
-            await qwen_service.close()
-
-        qwen_service = None
-        chat_service = None
-
-    app.include_router(agent.router)
+    app.include_router(chat_router)
+    app.include_router(auth_router)
 
     @app.get("/")
     async def root():

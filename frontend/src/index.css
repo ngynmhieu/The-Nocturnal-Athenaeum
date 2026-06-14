@@ -3,6 +3,19 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/josefin-sans";
 @import "@fontsource-variable/josefin-sans/wght-italic.css";
+
+/* Fix Josefin Sans vertical metrics — glyphs sit low in the line box by default,
+   causing text to appear below center in flex containers even with items-center.
+   ascent-override/descent-override shift the reported line box so glyphs align visually. */
+@font-face {
+  font-family: 'Josefin Sans Variable';
+  src: url('@fontsource-variable/josefin-sans/files/josefin-sans-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 700;
+  font-style: normal;
+  ascent-override: 90%;
+  descent-override: 20%;
+  line-gap-override: 0%;
+}
 @import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
