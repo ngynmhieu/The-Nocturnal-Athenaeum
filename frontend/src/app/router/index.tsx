@@ -1,7 +1,9 @@
+import { Suspense } from "react";
 import { createBrowserRouter } from "react-router";
 import { AppLayout } from "../layouts";
-import { ChatPage } from "@/modules/chat";
 import { ProtectedRoute, LoginPage } from "@/modules/auth";
+import { LoadingDialog } from "@/shared/ui";
+import { ChatPage } from "./lazyPages";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -11,7 +13,14 @@ export const router = createBrowserRouter([
       {
         element: <AppLayout />,
         children: [
-          { path: "/", element: <ChatPage /> },
+          {
+            path: "/",
+            element: (
+              <Suspense fallback={<LoadingDialog />}>
+                <ChatPage />
+              </Suspense>
+            ),
+          },
         ],
       },
     ],

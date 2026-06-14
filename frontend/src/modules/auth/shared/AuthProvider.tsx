@@ -14,6 +14,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [status, setStatus] = useState<AuthStatus>("loading");
+  const [profileSynced, setProfileSynced] = useState(false);
   const syncedRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -35,6 +36,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       if (!newSession) {
         setUser(null);
+        setProfileSynced(false);
         syncedRef.current = null;
         return;
       }
@@ -43,15 +45,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
         syncedRef.current = newSession.user.id;
         syncProfile(newSession.access_token)
           .then((profile) => { if (profile) setUser(profile); })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => setProfileSynced(true));
       }
     });
 
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  const booting =
+    status === "loading" || (status === "authenticated" && !profileSynced);
+
   return (
-    <AuthContext.Provider value={{ session, user, status }}>
+    <AuthContext.Provider value={{ session, user, status, booting }}>
       {children}
     </AuthContext.Provider>
   );
