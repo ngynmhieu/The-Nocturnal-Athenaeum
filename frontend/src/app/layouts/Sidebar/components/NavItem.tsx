@@ -18,7 +18,7 @@ export function NavItem({ to, label, icon: Icon, active, open }: NavItemProps) {
     <Link
       to={to}
       className={`
-        flex gap-3 mx-2 pt-2 px-[0.3rem] py-[0.4rem] rounded-sm text-sm transition-colors
+        flex gap-3 mx-2 px-[0.3rem] py-1 rounded-sm text-sm transition-colors
         ${active && open
           ? "bg-[var(--owl-brown)]/10 text-[var(--owl-brown-deep)] font-medium backdrop-blur-sm"
           : "text-[var(--owl-brown)]"
@@ -26,7 +26,7 @@ export function NavItem({ to, label, icon: Icon, active, open }: NavItemProps) {
         ${open ? "hover:bg-[var(--owl-brown-mid)]/15 hover:backdrop-blur-sm" : ""}
       `}
     >
-      <div className="flex size-5 shrink-0 justify-center">
+      <div className="flex size-5 shrink-0 justify-center items-center">
         <Icon size={16} aria-hidden="true" />
       </div>
       <AnimatePresence>
@@ -36,7 +36,7 @@ export function NavItem({ to, label, icon: Icon, active, open }: NavItemProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={FADE}
-            className="flex flex-1 min-w-0"
+            className="flex flex-1 min-w-0 items-center"
           >
             <span className="truncate whitespace-nowrap">{label}</span>
           </motion.span>
