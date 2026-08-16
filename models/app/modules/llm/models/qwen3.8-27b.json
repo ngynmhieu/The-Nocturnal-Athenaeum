@@ -1,0 +1,21 @@
+{
+  "id": "qwen3.8-27b",
+  "hf_repo": "unsloth/Qwen3.8-27B-GGUF",
+  "gguf_file": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "n_gpu_layers": -1,
+  "n_ctx": 16384,
+  "capabilities": ["chat", "thinking"],
+  "max_new_tokens": 2048,
+  "max_thinking_tokens": 1024,
+  "default_reasoning_effort": "low",
+  "thinking_budget_message": "\n\n(Reasoning budget reached — time to give the final answer.)\n</think>\n\n",
+  "sampling": {
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 1.5
+  },
+  "description": "Qwen3.8 27B · 262K context · hybrid linear attention · UD-Q3_K_XL.",
+  "default": true
+}

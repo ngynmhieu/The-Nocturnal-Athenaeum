@@ -28,6 +28,9 @@ class LlmService:
                     "owned_by": "local",
                     "description": cfg.description,
                     "loaded": cfg.id == self._manager.current_model_id,
+                    # Lets the backend and frontend adapt their surface to what the
+                    # loaded model can actually do, instead of hardcoding it.
+                    "capabilities": cfg.capabilities,
                 }
                 for cfg in self._manager.list_configs()
             ],
