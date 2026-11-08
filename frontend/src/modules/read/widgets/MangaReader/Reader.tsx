@@ -76,7 +76,7 @@ export function Reader({
 
   return (
     <div className="h-full overflow-y-auto" onScroll={onScroll}>
-      <div className="mx-auto flex w-full max-w-3xl flex-col">
+      <div className="flex w-full flex-col">
         {pages.map((page) => (
           <PageView key={page.id} page={page} imageUrl={urls[page.storagePath]}>
             {editing && onRemovePage && onAddPagesAt && (
