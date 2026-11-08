@@ -89,6 +89,10 @@ data: {"chunk": " of"}
 See `requirements.txt` for all dependencies. Main packages:
 - FastAPI
 - Uvicorn
-- Transformers
-- Torch
-- BitsAndBytes
+- OpenAI SDK (client for the models service, which runs Qwen3.8-27B)
+- SQLAlchemy + asyncpg
+- Supabase
+
+The model is not loaded here — start the models service (`models/run_models.bat`)
+alongside the backend. `MODEL_NAME` in `.env.backend` selects the model id
+(default `qwen3.8-27b`).

@@ -1,53 +1,37 @@
 """Generation-shaping helpers for the two-phase (thinking → answer) flow.
 
-These are the supporting pieces the engine drives during decoding:
-  - PresencePenaltyLogitsProcessor: a presence penalty transformers lacks natively.
   - ThinkingBudgetProcessor: nudges the model toward </think> as the budget runs low.
   - CloseStripper: drops a trailing </think> out of the streamed thinking text.
+
+The presence penalty that used to live here is gone: transformers had no native
+one, which is why it was hand-written, but llama.cpp applies presence_penalty
+itself. It is now a plain sampling field on SamplingConfig.
 """
 from __future__ import annotations
 
 from typing import Iterator
 
-import torch
-from transformers import LogitsProcessor
+import numpy as np
+import numpy.typing as npt
 
 THINK_CLOSE = "</think>"
 
 
-class PresencePenaltyLogitsProcessor(LogitsProcessor):
-    """OpenAI/vLLM-style presence penalty for raw transformers.
-
-    transformers has no presence_penalty — only a multiplicative repetition_penalty
-    that Unsloth recommends leaving *off* for Qwen3.5. This subtracts a flat penalty
-    from the logit of any token already generated *after the prompt*, discouraging
-    the repetition loops that drive Qwen3.5 into endless thinking. It deliberately
-    skips the prompt span so words from the user's question aren't penalized.
-    """
-    def __init__(self, penalty: float, prompt_len: int) -> None:
-        self._penalty = penalty
-        self._prompt_len = prompt_len
-
-    def __call__(self, input_ids: "torch.LongTensor", scores: "torch.FloatTensor") -> "torch.FloatTensor":
-        generated = input_ids[:, self._prompt_len:]
-        if generated.shape[1] == 0:
-            return scores
-        seen = torch.zeros_like(scores, dtype=torch.bool)
-        seen.scatter_(1, generated, True)
-        return scores - seen.to(scores.dtype) * self._penalty
-
-
-class ThinkingBudgetProcessor(LogitsProcessor):
+class ThinkingBudgetProcessor:
     """Gradually guides the model toward </think> as the thinking budget runs low.
 
     From warn_start (75% of budget) to the hard limit, the first token of </think>
     gets a linearly increasing boost — peaking at max_boost at the limit. This makes
     the model naturally wrap up its thought and emit </think> on its own terms, rather
-    than being cut off mid-sentence by a hard stop. StopStringCriteria still fires
-    when the tag appears, so this just shifts *when* that happens.
+    than being cut off mid-sentence by a hard stop. The stop-string still fires when
+    the tag appears, so this only shifts *when* that happens.
 
     Only the first token of </think> is boosted. Once the model commits to it, the KV
     cache makes the rest of the sequence very likely by continuation.
+
+    llama.cpp hands each processor a 1-D float array of the full vocabulary — unlike
+    transformers, which passed a batched 2-D tensor. The processor is stateful
+    (it counts tokens), so build a fresh one per generation call.
     """
     def __init__(self, close_token_id: int, budget: int,
                  warn_start: float = 0.75, max_boost: float = 15.0) -> None:
@@ -57,12 +41,13 @@ class ThinkingBudgetProcessor(LogitsProcessor):
         self._max_boost = max_boost
         self._count = 0
 
-    def __call__(self, input_ids: "torch.LongTensor", scores: "torch.FloatTensor") -> "torch.FloatTensor":
+    def __call__(self, input_ids: npt.NDArray[np.intc],
+                 scores: npt.NDArray[np.single]) -> npt.NDArray[np.single]:
         self._count += 1
         if self._count <= self._warn_at:
             return scores
         progress = min((self._count - self._warn_at) / max(self._remaining, 1), 1.0)
-        scores[:, self._close_id] += progress * self._max_boost
+        scores[self._close_id] += progress * self._max_boost
         return scores
 
 

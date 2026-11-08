@@ -28,6 +28,9 @@ class LlmService:
                     "owned_by": "local",
                     "description": cfg.description,
                     "loaded": cfg.id == self._manager.current_model_id,
+                    # Lets the backend and frontend adapt their surface to what the
+                    # loaded model can actually do, instead of hardcoding it.
+                    "capabilities": cfg.capabilities,
                 }
                 for cfg in self._manager.list_configs()
             ],
@@ -51,7 +54,10 @@ class LlmService:
                 media_type="text/event-stream",
             )
 
-        result = self._manager.generate(messages, req.max_tokens, **opts)
+        try:
+            result = self._manager.generate(messages, req.max_tokens, **opts)
+        except ValueError as exc:  # e.g. the latest message alone exceeds n_ctx
+            raise HTTPException(400, str(exc))
         message: dict = {"role": "assistant", "text": result.text}
         if result.thinking:
             message["thinking"] = result.thinking

@@ -1,4 +1,4 @@
-"""The `llm` module — serves transformers chat LLMs (Qwen today).
+"""The `llm` module — serves GGUF chat LLMs via llama.cpp (Qwen today).
 
 Self-contained: model configs (`models/*.json` + `config.py`), decoding helpers
 (`processors.py`), lifecycle + two-phase inference (`manager.py`), API

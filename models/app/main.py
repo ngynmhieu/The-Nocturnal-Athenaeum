@@ -24,6 +24,8 @@ async def lifespan(app: FastAPI):
     if model_id:
         logger.info("Loading default model '%s'...", model_id)
         manager.ensure(model_id)
+        # Pay the one-time CUDA kernel JIT here rather than on the first request.
+        manager.warmup()
         logger.info("Model '%s' ready.", model_id)
     else:
         logger.warning("No models found in app/modules/llm/models/.")

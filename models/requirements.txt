@@ -1,15 +1,24 @@
-# PyTorch with CUDA 12.8 (Blackwell / RTX 50xx, sm_120).
-# The +cu128 builds come from the PyTorch index below, not PyPI. Pinned (not via
-# a global --pre) so the rest of the stack installs as stable releases.
---extra-index-url https://download.pytorch.org/whl/cu128
-torch==2.11.0+cu128
-torchvision==0.26.0+cu128
+# llama.cpp bindings. PyPI publishes source-only, so the prebuilt CUDA wheels come
+# from the index below. Those wheels are `py3-none-<platform>` — ABI-agnostic,
+# because llama.cpp ships as a shared library loaded via ctypes rather than as a
+# CPython extension, so any Python 3.x works.
+#
+# cu125 is the newest CUDA variant published there. It drives Blackwell (sm_120)
+# correctly via PTX JIT — verified on an RTX 5060 Ti — so there is no need to
+# compile from source or install the CUDA toolkit.
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu125
+llama-cpp-python==0.3.34
 
-# Inference stack (recent enough to know newer archs like qwen3_5)
-transformers>=5.10
+# The wheel bundles ggml-cuda.dll but NOT the CUDA runtime it links against.
+# torch used to satisfy that by accident; with torch gone these are required, and
+# app/modules/llm/cuda_bootstrap.py preloads them before llama_cpp is imported.
+nvidia-cuda-runtime-cu12
+nvidia-cublas-cu12
+
+# Chat templates ship inside the GGUF, so jinja2 renders them directly — no
+# transformers, no tokenizer download.
+jinja2
 huggingface-hub
-accelerate
-bitsandbytes==0.49.*
 
 # Service / API
 fastapi>=0.95.0

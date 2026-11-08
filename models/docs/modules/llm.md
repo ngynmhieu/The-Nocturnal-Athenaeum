@@ -1,11 +1,12 @@
 # `llm` Module — Technical Reference
 
-The `llm` module runs text chat LLMs locally using HuggingFace Transformers and
-exposes them over an OpenAI-compatible HTTP API. It is the only module today; a
-future model type (e.g. embedding, vision) would be a sibling module.
+The `llm` module runs text chat LLMs locally with **llama.cpp** (via
+`llama-cpp-python`), loading pre-quantized **GGUF** weights, and exposes them over
+an OpenAI-compatible HTTP API. It is the only module today; a future model type
+(e.g. embedding, vision) would be a sibling module.
 
 For the overall service architecture and why this service exists as a separate
-process, see [`docs/models_guideline.md`](../../models_guideline.md).
+process, see [`docs/models_guideline.md`](../models_guideline.md).
 
 ---
 
@@ -14,14 +15,15 @@ process, see [`docs/models_guideline.md`](../../models_guideline.md).
 ```
 modules/llm/
 ├── config.py          configuration dataclasses (SamplingConfig, ModelConfig)
-├── processors.py      decoding-control helpers (logits processors, stream stripper)
+├── processors.py      decoding-control helpers (thinking budget, stream stripper)
+├── cuda_bootstrap.py  preloads the pip-installed CUDA runtime (Windows only)
 ├── manager.py         model lifecycle + two-phase inference (LlmManager)
 ├── service.py         OpenAI protocol translation + SSE (LlmService)
 ├── schemas.py         request/response shapes (Pydantic)
 ├── router.py          HTTP endpoints (FastAPI, thin)
 ├── dependencies.py    FastAPI Depends providers
 └── models/
-    └── qwen3.5-9b.json   one JSON file per model — adding a model = adding a file
+    └── qwen3.8-27b.json  one JSON file per model — adding a model = adding a file
 ```
 
 Call path for a streaming request:
@@ -49,15 +51,21 @@ that load them — there is no code to touch when adding a model.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `id` | `str` | required | ID clients send in `"model": "..."` |
-| `hf_repo` | `str` | required | HuggingFace repo slug |
-| `quantize` | `str` | `"none"` | `"4bit"` · `"8bit"` · `"none"` |
+| `hf_repo` | `str` | required | HuggingFace repo holding the GGUF files |
+| `gguf_file` | `str` | required | GGUF filename inside `hf_repo` (picks the quantization) |
+| `mmproj_file` | `str?` | `null` | Vision projector; omit to load text-only |
+| `n_gpu_layers` | `int` | `-1` | Layers offloaded to the GPU; `-1` = all |
+| `n_ctx` | `int` | `8192` | Context window; its KV cache is allocated in VRAM at load |
+| `capabilities` | `str[]` | `["chat"]` | Any of `chat`, `thinking`, `tools`, `vision`; reported by `GET /v1/models` |
 | `max_new_tokens` | `int` | `1024` | Token cap for the answer phase |
-| `supports_thinking` | `bool` | `false` | Enables the two-phase thinking flow |
 | `max_thinking_tokens` | `int` | `1024` | Token cap for the thinking phase |
-| `thinking_budget_message` | `str` | `"\n\n</think>\n\n"` | Text injected when thinking budget is exhausted before `</think>` |
+| `thinking_budget_message` | `str` | `"\n\n</think>\n\n"` | Text injected when the thinking budget runs out before `</think>` |
+| `default_reasoning_effort` | `str?` | `null` | `low` · `medium` · `xhigh`; used when a request omits `reasoning_effort` |
 | `sampling` | `SamplingConfig?` | `null` | Sampler knobs; `null` → greedy decoding |
 | `description` | `str` | `""` | Shown in `GET /v1/models` |
 | `default` | `bool` | `false` | Exactly one model should be `true` → loaded on startup |
+
+The two-phase thinking flow runs only when `capabilities` contains `"thinking"`.
 
 ### `SamplingConfig` fields (inside `"sampling": {}`)
 
@@ -67,21 +75,24 @@ that load them — there is no code to touch when adding a model.
 | `top_p` | `float` | `0.95` | Nucleus sampling probability |
 | `top_k` | `int` | `20` | Top-K candidates per step |
 | `min_p` | `float` | `0.0` | Minimum probability threshold |
-| `presence_penalty` | `float` | `0.0` | Flat logit penalty for tokens already generated (see §3) |
+| `presence_penalty` | `float` | `0.0` | Flat penalty for tokens already generated; applied natively by llama.cpp |
 
-Defaults match Unsloth's Qwen3.5 thinking-mode recommendation. If `"sampling"`
+Defaults match Unsloth's Qwen3.8 thinking-mode recommendation. If `"sampling"`
 is omitted from the JSON entirely, generation falls back to greedy decoding.
 
-### Full example (`qwen3.5-9b.json`)
+### Full example (`qwen3.8-27b.json`)
 
 ```json
 {
-  "id": "qwen3.5-9b",
-  "hf_repo": "Qwen/Qwen3.5-9B",
-  "quantize": "4bit",
-  "max_new_tokens": 1024,
-  "supports_thinking": true,
-  "max_thinking_tokens": 512,
+  "id": "qwen3.8-27b",
+  "hf_repo": "unsloth/Qwen3.8-27B-GGUF",
+  "gguf_file": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "n_gpu_layers": -1,
+  "n_ctx": 16384,
+  "capabilities": ["chat", "thinking"],
+  "max_new_tokens": 2048,
+  "max_thinking_tokens": 1024,
+  "default_reasoning_effort": "low",
   "thinking_budget_message": "\n\n(Reasoning budget reached — time to give the final answer.)\n</think>\n\n",
   "sampling": {
     "temperature": 1.0,
@@ -90,145 +101,140 @@ is omitted from the JSON entirely, generation falls back to greedy decoding.
     "min_p": 0.0,
     "presence_penalty": 1.5
   },
-  "description": "Qwen3.5 9B · 256K context · linear attention · 4-bit.",
+  "description": "Qwen3.8 27B · 262K context · hybrid linear attention · UD-Q3_K_XL.",
   "default": true
 }
 ```
+
+**Why `UD-Q3_K_XL`:** on a 16 GB GPU it is 12.5 GB and runs fully resident at
+~25 tok/s. `UD-Q4_K_XL` (16.7 GB) spills over PCIe and drops to ~10.5 tok/s.
+Fitting entirely in VRAM matters more than the extra bit of precision.
 
 ---
 
 ## 2. Inference — the two-phase thinking flow (`manager.py`)
 
-Qwen3.5 (and similar models) supports a "thinking" mode where the model reasons
-through a problem inside `<think>…</think>` before giving the final answer.
+Qwen3.8 supports a "thinking" mode where the model reasons inside
+`<think>…</think>` before giving the final answer.
 
 ### Why two phases?
 
-Naively calling `model.generate(max_new_tokens=1024)` with thinking enabled means
-thinking and answering share one token budget. On hard questions the model can
-consume all 1024 tokens thinking, leaving nothing for the actual answer.
-
-The two-phase approach gives each stage its own independent budget:
+With one call, thinking and answering share one token budget. On hard questions
+the model can spend all of it thinking, leaving nothing for the answer. The
+two-phase approach gives each stage its own budget:
 
 ```
 Phase 1 — thinking
-  Input:  [prompt] + <think>\n           (appended by apply_chat_template)
+  Input:  [prompt] + <think>\n           (rendered by the chat template)
   Output: reasoning text
-  Cap:    max_thinking_tokens (e.g. 512)
-  Stop:   </think> emitted, or budget exhausted
+  Cap:    max_thinking_tokens
+  Stop:   </think> stop-string, or budget exhausted
 
 Phase 2 — answer
   Input:  [prompt] + <think>\n[reasoning]</think>\n\n
   Output: the final response
-  Cap:    max_new_tokens (e.g. 1024)   ← fresh budget, unaffected by Phase 1
+  Cap:    max_new_tokens   ← fresh budget, unaffected by Phase 1
 ```
 
-### How the model "knows" it's in thinking mode
+Phase 2 continues from a **string** (the phase-1 prompt + reasoning + closing
+tag); llama.cpp reuses the matching KV-cache prefix, so Phase 1 is not re-run.
 
-`apply_chat_template(enable_thinking=True)` appends `<think>\n` to the formatted
-prompt. The model was trained to continue with reasoning content when it sees an
-unclosed `<think>` tag, then emit `</think>` when done. Phase 2 starts from the
-closed `</think>` boundary, so the model continues into the answer naturally.
+### Prompt rendering
+
+The chat template ships inside the GGUF (`tokenizer.chat_template` metadata).
+`manager.py` renders it directly with `jinja2`, passing `enable_thinking`,
+`reasoning_effort` and `tools`. There is no tokenizer repo to download and no
+transformers dependency.
+
+### Fitting the context window
+
+llama.cpp rejects a prompt longer than `n_ctx`, and the backend sends the whole
+conversation. `_fit()` renders the prompt and, while it exceeds `n_ctx` minus the
+tokens still to be generated (answer budget, plus thinking budget when thinking is
+on), drops the oldest turn — a user message together with the replies that
+followed it. System messages and the latest message are always kept. If the
+latest message alone does not fit, the request fails with a clear `ValueError`
+(HTTP 400 for non-streaming requests, an SSE error frame for streaming ones).
 
 ### Graceful budget handling
-
-Two mechanisms prevent a hard mid-sentence cut when thinking hits the cap:
 
 **1. `ThinkingBudgetProcessor`** (proactive, preferred)
 
 From 75% of `max_thinking_tokens` onward, the logit of the first `</think>` token
 gets a linearly increasing boost — from `+0` at 75% to `+15.0` at 100%. The model
-feels a growing pull toward closing its thought and tends to pick a natural sentence
-boundary before the hard limit.
+tends to close its thought at a natural boundary before the hard limit.
 
-**2. `_append_close`** (safety net)
+**2. `_close_thinking`** (safety net)
 
-If the budget runs out despite the boost and `</think>` was never emitted, the
-manager appends `thinking_budget_message` (a text nudge + `</think>`) directly
-onto the token sequence before starting Phase 2. This is the fallback.
+If Phase 1 ended on the token cap (`finish_reason == "length"`), the manager
+appends `thinking_budget_message` (a text nudge + `</think>`) before Phase 2. If
+it ended on the stop-string, it re-adds the plain `</think>` that the stop-string
+swallowed.
 
 ### Streaming specifics
 
-`model.generate()` is blocking. To stream, it runs in a background daemon thread
-while `TextIteratorStreamer` yields decoded chunks on the main thread. A `holder`
-dict captures the return value (the full output tensor) once the thread finishes —
-this tensor is needed to start Phase 2 without re-running Phase 1.
-
-`CloseStripper` filters the Phase 1 stream: it buffers up to 7 characters of tail
-(length of `</think>`) and drops the tag if it appears, so the caller only ever
-receives clean thinking text.
+llama.cpp streams natively (`stream=True`), so there is no background thread.
+`CloseStripper` filters the Phase 1 stream: it holds back a short tail and drops
+`</think>` if it appears, so the caller only ever receives clean thinking text.
 
 ---
 
 ## 3. Decoding helpers (`processors.py`)
 
-### `PresencePenaltyLogitsProcessor`
-
-HuggingFace Transformers has no native `presence_penalty` — only a multiplicative
-`repetition_penalty` that Unsloth explicitly recommends disabling for Qwen3.5.
-
-This processor subtracts a flat value from the logit of every token that already
-appeared *after* the prompt. It deliberately skips the prompt span so words from
-the user's question are not penalized.
-
-```
-scores[token] -= penalty   for every token already generated
-```
-
-With `presence_penalty = 1.5`, this breaks the repetition loops that cause Qwen3.5
-to think endlessly (research shows 84% of truncated thinking outputs were stuck in
->30% repetition loops).
-
 ### `ThinkingBudgetProcessor`
 
-Applied in Phase 1 only. Counts tokens as they are generated and once past
-`warn_start` (75% of budget), ramps a logit boost on the first token of `</think>`:
+Applied in Phase 1 only. Receives llama.cpp's 1-D numpy logits array per token.
+Counts tokens as they are generated and, once past `warn_start` (75% of budget),
+ramps a boost on the first token of `</think>`:
 
 ```
 boost = progress * max_boost   where progress ∈ [0, 1] over the final 25%
 ```
 
-Boosting only the *first* token of `</think>` is sufficient: once the model commits
-to it, the KV cache makes subsequent tokens in the tag very likely by continuation.
+Stateful, so the manager builds a new one for every generation call.
 
 ### `CloseStripper`
 
-A stateful stream filter. Because `StopStringCriteria` fires *after* the `</think>`
-token is generated (not before), the streamer may include it in a chunk. The
-stripper buffers the last 7 characters and discards `</think>` if it appears,
-passing all other text through unchanged. `flush()` must be called after the stream
-ends to emit any tail that was held back.
+A stateful stream filter that drops a trailing `</think>` from the thinking
+stream. `flush()` must be called after the stream ends to emit any held-back tail.
 
 ---
 
 ## 4. Model lifecycle (`manager.py`)
 
 `LlmManager` is a module-level singleton (`manager = LlmManager()`). It holds one
-model resident at a time and serializes load/swap operations with a threading lock
-so an in-flight generation can't race a model swap.
+model resident at a time, and **one lock serializes every use of it** — loads,
+swaps and generations. A llama.cpp context owns a single KV cache and is not
+thread-safe, while FastAPI runs each request on its own threadpool thread, so
+concurrent requests queue rather than decode together. A stream holds the lock
+from its first chunk until it finishes or the client disconnects (closing the
+generator releases it).
 
 ### Load
 
 `ensure(model_id)` checks if the requested model is already resident. If not, it
-unloads the current model (frees GPU memory, empties CUDA cache) then loads the
-new one:
+unloads the current one and loads the new one:
 
-1. `AutoTokenizer.from_pretrained(hf_repo)` — download/cache the tokenizer
-2. `AutoModelForImageTextToText.from_pretrained(...)` with a fallback to
-   `AutoModelForCausalLM` — newer Qwen models ship as multimodal and are not
-   registered under the causal-LM auto class
-3. Apply quantization config (`BitsAndBytesConfig`) if `quantize` is `"4bit"` or
-   `"8bit"`
-4. Cache the first token ID of `</think>` for `ThinkingBudgetProcessor`
+1. `Llama.from_pretrained(hf_repo, filename=gguf_file, n_gpu_layers, n_ctx)` —
+   downloads the GGUF into the HuggingFace cache on first use
+2. Compiles the GGUF's embedded chat template with `jinja2`
+3. Caches the first token ID of `</think>` for `ThinkingBudgetProcessor`
 
-The default model (marked `"default": true` in its JSON) is loaded at service
-startup via `app/main.py`'s lifespan handler.
+At startup, `app/main.py`'s lifespan loads the default model and calls
+`manager.warmup()`, which forces the one-time CUDA PTX→SASS compile so it doesn't
+land on the first user request.
+
+### CUDA runtime (`cuda_bootstrap.py`)
+
+The prebuilt `llama-cpp-python` CUDA wheel bundles `ggml-cuda` but not the CUDA
+runtime it links against. `requirements.txt` installs `nvidia-cuda-runtime-cu12`
+and `nvidia-cublas-cu12`; on Windows, `cuda_bootstrap.bootstrap()` preloads those
+DLLs by absolute path before `llama_cpp` is imported. On Linux it is a no-op.
 
 ### Swap
 
-Only one model can be resident. Requesting a different model (by sending a
-different `"model"` field in the request) triggers an unload → load cycle. Swap
-latency is proportional to the model size — for a 4-bit 9B model, a few minutes.
+Only one model can be resident. Requesting a different `"model"` triggers an
+unload → load cycle.
 
 ---
 
@@ -236,7 +242,7 @@ latency is proportional to the model size — for a 4-bit 9B model, a few minute
 
 ### `GET /health`
 ```json
-{ "status": "ok", "loaded_model": "qwen3.5-9b" }
+{ "status": "ok", "loaded_model": "qwen3.8-27b" }
 ```
 
 ### `GET /v1/models`
@@ -245,11 +251,12 @@ latency is proportional to the model size — for a 4-bit 9B model, a few minute
   "object": "list",
   "data": [
     {
-      "id": "qwen3.5-9b",
+      "id": "qwen3.8-27b",
       "object": "model",
       "owned_by": "local",
-      "description": "Qwen3.5 9B · 256K context · linear attention · 4-bit.",
-      "loaded": true
+      "description": "Qwen3.8 27B · 262K context · hybrid linear attention · UD-Q3_K_XL.",
+      "loaded": true,
+      "capabilities": ["chat", "thinking"]
     }
   ]
 }
@@ -260,20 +267,22 @@ latency is proportional to the model size — for a 4-bit 9B model, a few minute
 **Request:**
 ```json
 {
-  "model": "qwen3.5-9b",
+  "model": "qwen3.8-27b",
   "messages": [
     { "role": "system", "content": "You are a helpful assistant." },
     { "role": "user",   "content": "Explain gravity." }
   ],
   "max_tokens": 512,
   "stream": true,
-  "enable_thinking": true
+  "enable_thinking": true,
+  "reasoning_effort": "low"
 }
 ```
 
-`enable_thinking` is not a named field — it is passed via `extra_body` / request
-extras and forwarded to `manager.stream()` as a passthrough kwarg. Any unrecognised
-field in the request body is passed through the same way.
+`enable_thinking` and `reasoning_effort` are declared, validated fields on
+`ChatCompletionRequest` (clients using the OpenAI SDK send them via `extra_body`).
+An invalid `reasoning_effort` returns 422. Omitted, they fall back to the model's
+JSON defaults.
 
 **Non-streaming response (`stream: false`):**
 ```json
@@ -281,7 +290,7 @@ field in the request body is passed through the same way.
   "id": "chatcmpl-...",
   "object": "chat.completion",
   "created": 1718000000,
-  "model": "qwen3.5-9b",
+  "model": "qwen3.8-27b",
   "choices": [{
     "index": 0,
     "message": {
@@ -296,8 +305,6 @@ field in the request body is passed through the same way.
 
 **Streaming response (`stream: true`):**
 
-SSE frames arrive in two types determined by the `delta` field:
-
 ```
 data: {"choices": [{"delta": {"thinking": "Let me consider..."}}]}
 data: {"choices": [{"delta": {"thinking": " the forces involved..."}}]}
@@ -306,9 +313,8 @@ data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 data: [DONE]
 ```
 
-`thinking` chunks arrive first (Phase 1), then `text` chunks (Phase 2). The client
-should buffer `thinking` chunks into one block and `text` chunks into the answer.
-The `text`/`thinking` fields are non-standard OpenAI delta fields; they are
+`thinking` chunks arrive first (Phase 1), then `text` chunks (Phase 2). The
+`text`/`thinking` fields are non-standard OpenAI delta fields; they are
 accessible via `choice.delta.model_extra` when using the OpenAI Python SDK.
 
 ---
@@ -317,11 +323,12 @@ accessible via `choice.delta.model_extra` when using the OpenAI Python SDK.
 
 | Symptom | Knob | Where |
 |---|---|---|
-| Model still thinks too long | Lower `max_thinking_tokens` | JSON |
+| Model still thinks too long | Lower `max_thinking_tokens`, or `default_reasoning_effort: "low"` | JSON |
 | Thinking cut off too early | Raise `max_thinking_tokens` or lower `warn_start` in `ThinkingBudgetProcessor` | JSON / `processors.py` |
 | Thinking ends abruptly / incoherent | Raise `max_boost` in `ThinkingBudgetProcessor` | `processors.py` |
 | Repetition loops in thinking | Raise `presence_penalty` (up to ~2.0) | JSON `sampling` block |
 | Answer too short | Raise `max_new_tokens` | JSON |
+| Out of VRAM at load | Lower `n_ctx`, then `n_gpu_layers`, or pick a smaller `gguf_file` | JSON |
+| Long chats forget early messages | Raise `n_ctx` (costs VRAM) — older turns are dropped to fit | JSON |
 | Output too random / hallucinating | Lower `temperature` toward `0.6` | JSON `sampling` block |
-| Output too repetitive / boring | Raise `temperature` toward `1.0`, ensure `presence_penalty > 0` | JSON `sampling` block |
-| No thinking block wanted | Set `"supports_thinking": false` or send `"enable_thinking": false` | JSON or request |
+| No thinking block wanted | Drop `"thinking"` from `capabilities` or send `"enable_thinking": false` | JSON or request |
