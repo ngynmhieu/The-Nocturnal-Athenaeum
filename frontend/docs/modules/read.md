@@ -62,6 +62,7 @@ frontend/src/
           delete-page/               ← remove one page → DELETE /read/pages/:id
           reorder-pages/             ← drag-reorder → PATCH …/pages/order
           pull-pages/                ← scraped candidates (site order) → POST /read/sections/:id/import
+          set-reader-width/          ← Full / ¾ / ½ page-strip width, remembered in localStorage
         library/
           collect-to-library/        ← scraped/uploaded images → POST /read/library/import or /read/library
           discard-from-library/      ← remove a library asset (row + Storage file)
@@ -123,8 +124,11 @@ In the reader's edit mode every page carries `PageEditOverlay` (in
 - **✕** in its corner: the first click arms it ("Remove?"), the second removes the
   page (`delete-page` → `DELETE /read/pages/{id}`, row + Storage file, later pages
   move up). Moving the pointer away disarms it.
-- **Click the page** → a menu: **Add page before**, **Add page after**, **Remove this
-  page** (also asks twice). The add options open `PoolPickerModal` with an `at`
+- **Click the page** → a menu: **Move up one page**, **Move down one page**, **Add
+  page before**, **Add page after**, **Remove this page** (also asks twice). A move
+  swaps the page with its neighbour and saves the whole new order via
+  `reorder-pages` (`PATCH …/pages/order`); Move up is hidden on the first page and
+  Move down on the last. The add options open `PoolPickerModal` with an `at`
   position, so whatever is picked (scraped, uploaded, or already in the pool) goes
   in at that spot via `POST …/pages/from-library?at=N`.
 
@@ -203,6 +207,16 @@ widget then:
 - **Preloads** the next page(s) ahead of the viewport.
 - Reserves each page's box from the stored `width/height` → **no layout shift**.
 - Uses `loading="lazy"` and an IntersectionObserver to track progress.
+
+### Reader width
+
+Full width is too wide on big screens, so the reader header has a **Full · ¾ · ½**
+picker (`set-reader-width` → `useReaderWidth`). It narrows the page strip and
+keeps it centred, in both reading and edit mode. The choice is one preference for
+every manga, stored in the browser's `localStorage` (`lector.readerWidth`), so it
+is per-browser and does not sync across devices. If storage is unavailable, the
+reader falls back to full width. Phones (below `md`) always read full width, and
+the picker is hidden there.
 
 Because images load directly from the Storage CDN (not proxied through FastAPI), the
 reader stays fast even for large volumes.

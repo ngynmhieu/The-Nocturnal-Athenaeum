@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Page } from "../../entities";
+import type { ReaderWidth } from "../../features";
 import { PageView } from "./components/PageView";
 import { PageEditOverlay } from "./components/PageEditOverlay";
 
@@ -16,19 +17,30 @@ const SETTLE_MS = 350;
  *  nearly visible, so pages would pop in mid-scroll. */
 const PRELOAD_AHEAD = 5;
 const PRELOAD_BEHIND = 1;
+/** The strip's width per preference. Phones always read full width — half a
+ *  phone screen is too small to read — so only md+ screens narrow it. */
+const WIDTH_CLASS: Record<ReaderWidth, string> = {
+  full: "",
+  "three-quarters": "md:w-3/4",
+  half: "md:w-1/2",
+};
 
 interface ReaderProps {
   pages: Page[];
   /** path → signed URL map (batch-signed once per section by the page). */
   urls: Record<string, string>;
+  /** How wide the page strip is on wide screens (centred); defaults to full. */
+  width?: ReaderWidth;
   /** Fires when the page header should hide (scrolling down) or show again
    *  (scrolling up, or back near the top) — so it stays out of the way while reading. */
   onHeaderHiddenChange?: (hidden: boolean) => void;
   /** Edit mode: each page gets remove / add-before / add-after controls. */
   editing?: boolean;
-  /** The page currently being removed, if any. */
-  removingId?: string | null;
+  /** The page currently being removed or moved, if any. */
+  busyPageId?: string | null;
   onRemovePage?: (page: Page) => void;
+  /** Swap a page with its neighbour: -1 = one place up, 1 = one place down. */
+  onMovePage?: (page: Page, direction: -1 | 1) => void;
   /** Add pages so they land at this position (pages from there move down). */
   onAddPagesAt?: (position: number) => void;
 }
@@ -39,10 +51,12 @@ interface ReaderProps {
 export function Reader({
   pages,
   urls,
+  width = "full",
   onHeaderHiddenChange,
   editing = false,
-  removingId = null,
+  busyPageId = null,
   onRemovePage,
+  onMovePage,
   onAddPagesAt,
 }: ReaderProps) {
   // One page menu at a time; a click anywhere outside it closes it.
@@ -104,7 +118,7 @@ export function Reader({
     // Desktop scrolls inside this box (and folds the header via onScroll); on a
     // phone the page itself scrolls, so the header just scrolls away with it.
     <div className="md:h-full md:overflow-y-auto" onScroll={onScroll}>
-      <div ref={listRef} className="flex w-full flex-col">
+      <div ref={listRef} className={`mx-auto flex w-full flex-col ${WIDTH_CLASS[width]}`}>
         {pages.map((page, index) => (
           <PageView
             key={page.id}
@@ -118,8 +132,10 @@ export function Reader({
                 page={page}
                 menuOpen={openMenuId === page.id}
                 onMenuOpenChange={(open) => setMenuPageId(open ? page.id : null)}
-                removing={removingId === page.id}
+                busy={busyPageId === page.id}
                 onRemove={onRemovePage}
+                onMoveUp={onMovePage && index > 0 ? (p) => onMovePage(p, -1) : undefined}
+                onMoveDown={onMovePage && index < pages.length - 1 ? (p) => onMovePage(p, 1) : undefined}
                 onAddAt={onAddPagesAt}
               />
             )}
