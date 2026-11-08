@@ -27,6 +27,8 @@ export function MangaReaderPage() {
   // title/section label for the header, so it fills in a beat after pages do.
   const { detail } = useMangaDetail(mangaId);
   const section = detail?.sections.find((s) => s.id === sectionId);
+  // Back lands on the tab this section lives in (the sections page reads ?tab=).
+  const backTab = section ? `?tab=${section.kind === "volume" ? "volumes" : "chapters"}` : "";
 
   if (error) {
     return <p className="py-12 text-center text-sm text-[var(--owl-brown-muted)]">{error}</p>;
@@ -40,7 +42,7 @@ export function MangaReaderPage() {
       <header className="shrink-0 border-b border-[var(--owl-border)] px-6 py-4">
         <div className="mx-auto w-full max-w-5xl flex items-center gap-3">
           <button
-            onClick={() => navigate(mangaId ? `/lector/manga/${mangaId}` : "/lector")}
+            onClick={() => navigate(mangaId ? `/lector/manga/${mangaId}${backTab}` : "/lector")}
             aria-label="Back to manga"
             className="p-1.5 rounded-md text-[var(--owl-brown-muted)] transition-colors hover:bg-[var(--owl-brown-mid)]/10 hover:text-[var(--owl-brown-deep)] cursor-pointer"
           >
