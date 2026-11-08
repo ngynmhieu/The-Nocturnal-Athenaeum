@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
 import { ArrowDownToLine, ArrowUpToLine, Trash2 } from "lucide-react";
 import { Dropdown, DropdownItem } from "@/shared/ui";
 import type { Page } from "../../../entities";
 
 /** The dropdown's size (Dropdown is w-48; three items ≈ 7.5rem tall) — used to
- *  keep the menu inside the page when it opens near an edge. */
+ *  keep the menu on screen when it opens near an edge. */
 const MENU_WIDTH_PX = 192;
 const MENU_HEIGHT_PX = 124;
 const EDGE_GAP_PX = 8;
@@ -24,7 +25,11 @@ interface PageEditOverlayProps {
 
 /** Edit-mode layer over one page: click anywhere on it and a menu opens right
  *  there — add pages in front of / behind it, or remove it (asks twice, since
- *  removing deletes the image for good). */
+ *  removing deletes the image for good).
+ *
+ *  The menu is portalled to <body> with fixed positioning: the page box has
+ *  `content-visibility: auto`, whose paint containment would clip a menu
+ *  rendered inside it (a short strip page can be shorter than the menu). */
 export function PageEditOverlay({
   page,
   menuOpen,
@@ -34,7 +39,7 @@ export function PageEditOverlay({
   onAddAt,
 }: PageEditOverlayProps) {
   const [menuArmed, setMenuArmed] = useState(false);
-  // Where the menu opens, relative to this page's box.
+  // Where the menu opens, in viewport coordinates.
   const [menuAt, setMenuAt] = useState({ left: 0, top: 0 });
   const label = `page ${page.position + 1}`;
 
@@ -48,17 +53,24 @@ export function PageEditOverlay({
       closeMenu();
       return;
     }
-    const box = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - box.left;
-    const y = event.clientY - box.top;
+    const { clientX: x, clientY: y } = event;
     setMenuAt({
-      // Shift left / open upward when the click is too close to the right or bottom edge.
-      left: Math.max(EDGE_GAP_PX, Math.min(x, box.width - MENU_WIDTH_PX - EDGE_GAP_PX)),
-      top: y + MENU_HEIGHT_PX + EDGE_GAP_PX > box.height ? Math.max(EDGE_GAP_PX, y - MENU_HEIGHT_PX) : y,
+      // Shift left / open upward when the click is too close to the screen's
+      // right or bottom edge.
+      left: Math.max(EDGE_GAP_PX, Math.min(x, window.innerWidth - MENU_WIDTH_PX - EDGE_GAP_PX)),
+      top: y + MENU_HEIGHT_PX + EDGE_GAP_PX > window.innerHeight ? Math.max(EDGE_GAP_PX, y - MENU_HEIGHT_PX) : y,
     });
     setMenuArmed(false);
     onMenuOpenChange(true);
   };
+
+  // A fixed menu doesn't move with the page, so scrolling closes it.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => onMenuOpenChange(false);
+    window.addEventListener("scroll", close, { capture: true, passive: true });
+    return () => window.removeEventListener("scroll", close, { capture: true });
+  }, [menuOpen, onMenuOpenChange]);
 
   return (
     // `data-page-edit` lets `Reader` tell a click inside this page's menu from a
@@ -78,9 +90,12 @@ export function PageEditOverlay({
         {page.position + 1}
       </span>
 
+      {createPortal(
       <AnimatePresence>
         {menuOpen && (
-          <div className="absolute z-50" style={{ left: menuAt.left, top: menuAt.top }}>
+          // Same `data-page-edit` as the page, so Reader still treats clicks in
+          // the (portalled) menu as inside this page.
+          <div data-page-edit={page.id} className="fixed z-50" style={{ left: menuAt.left, top: menuAt.top }}>
             <Dropdown>
               <DropdownItem
                 icon={<ArrowUpToLine size={14} aria-hidden="true" />}
@@ -116,7 +131,9 @@ export function PageEditOverlay({
             </Dropdown>
           </div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body
+      )}
     </div>
   );
 }
