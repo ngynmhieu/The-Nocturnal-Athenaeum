@@ -4,11 +4,16 @@ interface PageViewProps {
   page: Page;
   /** Signed CDN URL for the page's Storage object. */
   imageUrl?: string;
+  /** This page's index in the reader — lets `Reader` observe which page is on screen. */
+  index: number;
+  /** Start downloading now instead of when the browser decides it's close enough
+   *  (`Reader` sets this for the pages just ahead of the one being read). */
+  eager?: boolean;
   /** Laid over the image (edit mode's controls). */
   children?: React.ReactNode;
 }
 
-export function PageView({ page, imageUrl, children }: PageViewProps) {
+export function PageView({ page, imageUrl, index, eager = false, children }: PageViewProps) {
   // Reserve the box from the stored intrinsic dims → no layout shift while the
   // image streams in. content-visibility lets the browser skip off-screen work
   // (the lightweight stand-in for full list virtualization).
@@ -16,6 +21,7 @@ export function PageView({ page, imageUrl, children }: PageViewProps) {
 
   return (
     <div
+      data-page-index={index}
       className="relative w-full bg-[var(--owl-cream-mid)]/30"
       style={{
         aspectRatio,
@@ -27,7 +33,8 @@ export function PageView({ page, imageUrl, children }: PageViewProps) {
         <img
           src={imageUrl}
           alt={`Page ${page.position + 1}`}
-          loading="lazy"
+          // lazy → eager on an existing <img> starts its download immediately.
+          loading={eager ? "eager" : "lazy"}
           decoding="async"
           className="size-full object-contain"
         />

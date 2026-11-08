@@ -11,6 +11,11 @@ const TOP_ZONE = 64;
  *  animation resizes this box, and near the bottom the browser nudges
  *  scrollTop to fit, which would otherwise read as a scroll and flip it back. */
 const SETTLE_MS = 350;
+/** Pages to download ahead of (and behind) the one on screen, instead of leaving
+ *  it to the browser — Safari's native lazy loading waits until a page is
+ *  nearly visible, so pages would pop in mid-scroll. */
+const PRELOAD_AHEAD = 5;
+const PRELOAD_BEHIND = 1;
 
 interface ReaderProps {
   pages: Page[];
@@ -53,6 +58,27 @@ export function Reader({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [openMenuId]);
 
+  // The furthest-down page currently on screen; pages within the preload window
+  // around it load eagerly. Observing against the viewport (root: null) works
+  // both when this box scrolls (desktop) and when the whole page does (phone).
+  const listRef = useRef<HTMLDivElement>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const visible = new Set<number>();
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const index = Number((entry.target as HTMLElement).dataset.pageIndex);
+        if (entry.isIntersecting) visible.add(index);
+        else visible.delete(index);
+      }
+      if (visible.size > 0) setCurrentIndex(Math.max(...visible));
+    });
+    list.querySelectorAll("[data-page-index]").forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [pages]);
+
   const lastTop = useRef(0);
   const hidden = useRef(false);
   const settleUntil = useRef(0);
@@ -78,9 +104,15 @@ export function Reader({
     // Desktop scrolls inside this box (and folds the header via onScroll); on a
     // phone the page itself scrolls, so the header just scrolls away with it.
     <div className="md:h-full md:overflow-y-auto" onScroll={onScroll}>
-      <div className="flex w-full flex-col">
-        {pages.map((page) => (
-          <PageView key={page.id} page={page} imageUrl={urls[page.storagePath]}>
+      <div ref={listRef} className="flex w-full flex-col">
+        {pages.map((page, index) => (
+          <PageView
+            key={page.id}
+            page={page}
+            index={index}
+            imageUrl={urls[page.storagePath]}
+            eager={index >= currentIndex - PRELOAD_BEHIND && index <= currentIndex + PRELOAD_AHEAD}
+          >
             {editing && onRemovePage && onAddPagesAt && (
               <PageEditOverlay
                 page={page}
