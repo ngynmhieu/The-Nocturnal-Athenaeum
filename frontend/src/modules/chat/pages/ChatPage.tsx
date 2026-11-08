@@ -34,7 +34,10 @@ export function ChatPage() {
   const toggleThinking = () => setThinkingEnabled((v) => !v);
 
   return (
-    <div className="relative h-full overflow-hidden">
+    // Chat keeps its own scroll box (message list + pinned input), so on a phone
+    // — where the layout doesn't fix a height — size it to the screen under the
+    // 3.5rem header.
+    <div className="relative h-[calc(100dvh-3.5rem)] overflow-hidden md:h-full">
       {/* Empty state: greeting + input centered; exits with fade and slide up.
           Suppressed while history is loading so the greeting doesn't flash. */}
       <AnimatePresence>

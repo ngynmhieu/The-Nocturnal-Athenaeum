@@ -5,6 +5,7 @@ import { usePoolAssets, type LibraryAsset, type Page } from "../../entities";
 import {
   useInsertFromLibrary,
   useCollectToLibrary,
+  useDiscardFromLibrary,
   useSetMangaCover,
   useSetSectionCover,
 } from "../../features";
@@ -15,9 +16,10 @@ import { ScrapePicker } from "./ScrapePicker";
 import { UploadTray } from "./UploadTray";
 
 /** What picking from the pool is for — one pool, three destinations. Only
- *  `section-pages` allows more than one pick (a covNoer is always exactly one). */
+ *  `section-pages` allows more than one pick (a cover is always exactly one).
+ *  `section-pages` with `at` inserts from that position instead of appending. */
 export type PoolPickerTarget =
-  | { kind: "section-pages"; sectionId: string; onDone: (pages: Page[]) => void }
+  | { kind: "section-pages"; sectionId: string; at?: number; onDone: (pages: Page[]) => void }
   | { kind: "manga-cover"; mangaId: string; onDone: () => void }
   | { kind: "section-cover"; sectionId: string; onDone: () => void };
 
@@ -34,17 +36,26 @@ const COLLECT_MODE_TABS: { value: CollectMode; label: string; icon: typeof Globe
   { value: "upload", label: "Upload", icon: Upload },
 ];
 
-/** The single way images reach a section or a cover: collect into the pool
+/** How loose images reach a section or a cover: collect into the pool
  *  (scrape or upload — identical to LibraryPage's "Collect images"), then pick
- *  from that same grid. Merging the collect step into this "window" means
- *  pages and covers always pass through the pool, rather than each having its
- *  own separate straight-to-target upload/scrape path to keep in sync. */
+ *  from that same grid. Merging the collect step into this "window" keeps one
+ *  collect path for pages and covers alike. (The exception is a whole volume/
+ *  chapter from a supported site: the direct pull — `PullPagesModal` /
+ *  `PullSeriesModal` — skips the pool and keeps the site's page order.) */
 export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps) {
   const [mode, setMode] = useState<CollectMode>("scrape");
   const { assets, loading, appendAsset, removeAssets } = usePoolAssets();
   const urls = useSignedUrls(assets.map((a) => a.storagePath));
   const { picked, setPicked, onItemClick: multiItemClick } = useClickSelect(assets.map((a) => a.id));
   const { importUrlsToLibrary, uploadFilesToLibrary, collecting, importStatus } = useCollectToLibrary();
+  const { discardImages, deletingIds } = useDiscardFromLibrary();
+  // "Delete N images": removes the picked images for good (row + Storage file),
+  // each dropping out of the grid and the picks as its own request finishes.
+  const deletePicked = () =>
+    discardImages(picked, (id) => {
+      removeAssets([id]);
+      setPicked((prev) => prev.filter((key) => key !== id));
+    });
 
   // Rules of hooks: all three targets' hooks are called every render, each
   // holding a harmless id when its target kind isn't the active one — only
@@ -65,13 +76,18 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
     : multiItemClick;
 
   const busy = target.kind === "section-pages" ? inserting : target.kind === "manga-cover" ? settingMangaCover : settingSectionCover;
-  const heading = target.kind === "section-pages" ? "Add pages from the pool" : "Choose a cover from the pool";
+  const heading =
+    target.kind !== "section-pages"
+      ? "Choose a cover from the pool"
+      : target.at === undefined
+        ? "Add pages from the pool"
+        : `Add pages from the pool — they'll go in as page ${target.at + 1}`;
   const confirmLabel = target.kind === "section-pages" ? "Add" : "Use as cover";
   const busyLabel = target.kind === "section-pages" ? "Adding…" : "Setting…";
 
   const confirm = async () => {
     if (target.kind === "section-pages") {
-      const pages = await insert(picked);
+      const pages = await insert(picked, target.at);
       removeAssets(picked);
       setPicked([]);
       target.onDone(pages);
@@ -115,7 +131,6 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
           <ScrapePicker
             busy={collecting}
             importStatus={importStatus}
-            importLabel="Collect"
             onImport={async (scrapedUrls, referer) => {
               await importUrlsToLibrary(scrapedUrls, referer, (_key, result) => {
                 if (result.ok) appendAsset(result.asset);
@@ -126,7 +141,6 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
           <UploadTray
             busy={collecting}
             uploadStatus={importStatus}
-            confirmLabel="Collect"
             onConfirm={async (items) => {
               await uploadFilesToLibrary(items, (_key, result) => {
                 if (result.ok) appendAsset(result.asset);
@@ -155,6 +169,8 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
             confirmLabel={confirmLabel}
             importStatus={target.kind === "section-pages" ? insertStatus : undefined}
             onConfirm={confirm}
+            onDeletePicked={deletePicked}
+            deleting={deletingIds.size > 0}
           />
         )}
       </div>

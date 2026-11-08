@@ -1,3 +1,4 @@
+import { randomUUID } from "@/shared/lib";
 import { useLayoutEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
@@ -8,7 +9,7 @@ import { useNavigate } from "react-router";
  *  the history fetch for this not-yet-persisted id. */
 export function NewChatRedirect() {
   const navigate = useNavigate();
-  const [id] = useState(() => crypto.randomUUID());
+  const [id] = useState(() => randomUUID());
 
   useLayoutEffect(() => {
     navigate(`/c/${id}`, { replace: true, state: { isNew: true } });

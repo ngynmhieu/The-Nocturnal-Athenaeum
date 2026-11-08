@@ -13,19 +13,20 @@ sits next to the responses it relates to:
     library.py   /read/library*,                  LibraryAssetRecord, OrganizeRequest,
                  /read/*/cover/from-library         CoverFromLibraryRequest (req)
                                                     LibraryAssetInfo (resp)
-    scrape.py    /read/scrape, /read/*/import      ScrapeRequest, ImportRequest,
-                                                    LibraryImportRequest (req)
-                                                    ScrapeResult, ScrapeCandidate (resp)
+    scrape.py    /read/scrape*, /read/*/import     ScrapeRequest, SeriesRequest,
+                                                    ImportRequest, LibraryImportRequest (req)
+                                                    ScrapeResult, ScrapeCandidate,
+                                                    SeriesResult, SeriesEntryInfo (resp)
 
 Quick reference — which way does it cross the wire?
 
     Requests  (client → backend):  MangaCreate, MangaUpdate, SectionCreate, SectionUpdate,
                                     PageRecord, ReorderRequest, LibraryAssetRecord,
                                     OrganizeRequest, CoverFromLibraryRequest, ScrapeRequest,
-                                    ImportRequest, LibraryImportRequest
+                                    SeriesRequest, ImportRequest, LibraryImportRequest
     Responses (backend → client):  MangaSummary, MangaDetail, SectionSummary,
                                     PageInfo, LibraryAssetInfo, ScrapeResult,
-                                    ScrapeCandidate
+                                    ScrapeCandidate, SeriesResult, SeriesEntryInfo
 """
 from .library import (
     CoverFromLibraryRequest,
@@ -36,7 +37,17 @@ from .library import (
 )
 from .manga import MangaCreate, MangaDetail, MangaSummary, MangaUpdate
 from .page import PageInfo, PageRecord, ReorderRequest
-from .scrape import ImportRequest, LibraryImportRequest, ScrapeCandidate, ScrapeRequest, ScrapeResult
+from .scrape import (
+    ImportRequest,
+    LibraryImportRequest,
+    PageSize,
+    ScrapeCandidate,
+    ScrapeRequest,
+    ScrapeResult,
+    SeriesEntryInfo,
+    SeriesRequest,
+    SeriesResult,
+)
 from .section import SectionCreate, SectionSummary, SectionUpdate
 
 __all__ = [
@@ -52,7 +63,9 @@ __all__ = [
     "OrganizeRequest",
     "CoverFromLibraryRequest",
     "ScrapeRequest",
+    "SeriesRequest",
     "ImportRequest",
+    "PageSize",
     "LibraryImportRequest",
     # --- responses (backend → client) ---
     "MangaSummary",
@@ -62,4 +75,6 @@ __all__ = [
     "LibraryAssetInfo",
     "ScrapeResult",
     "ScrapeCandidate",
+    "SeriesResult",
+    "SeriesEntryInfo",
 ]

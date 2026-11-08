@@ -200,6 +200,52 @@ class ReadRepository:
             )
         return True
 
+    async def get_page(self, page_id: uuid.UUID, user_id: uuid.UUID) -> MangaPage | None:
+        result = await self._session.execute(
+            select(MangaPage)
+            .join(MangaSection, MangaSection.id == MangaPage.section_id)
+            .join(Manga, Manga.id == MangaSection.manga_id)
+            .where(MangaPage.id == page_id, Manga.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_page(self, page: MangaPage) -> None:
+        """Delete one page and close the gap it leaves (later pages move up one)."""
+        await self._session.delete(page)
+        await self._session.flush()
+        await self._shift_positions(page.section_id, from_position=page.position + 1, by=-1)
+
+    async def reserve_positions(self, section_id: uuid.UUID, count: int, at: int | None = None) -> int:
+        """Free `count` consecutive positions and return the first one.
+
+        `at=None` appends after the last page. Otherwise the pages from `at` on
+        (clamped to the section's length) move down by `count` to make room, so
+        new pages can land in front of / behind any existing page.
+        """
+        total = await self.count_pages(section_id)
+        if at is None or at >= total:
+            return total
+        start = max(at, 0)
+        if count > 0:
+            await self._shift_positions(section_id, from_position=start, by=count)
+        return start
+
+    async def _shift_positions(self, section_id: uuid.UUID, from_position: int, by: int) -> None:
+        """Add `by` to every position `>= from_position`. Two passes through
+        negatives (as in `set_positions`): the unique `(section_id, position)`
+        index is checked row by row, so a one-step shift would collide with a
+        neighbour that hasn't moved yet."""
+        await self._session.execute(
+            update(MangaPage)
+            .where(MangaPage.section_id == section_id, MangaPage.position >= from_position)
+            .values(position=-(MangaPage.position + by) - 1)
+        )
+        await self._session.execute(
+            update(MangaPage)
+            .where(MangaPage.section_id == section_id, MangaPage.position < 0)
+            .values(position=-MangaPage.position - 1)
+        )
+
     async def manga_storage_paths(self, manga_id: uuid.UUID) -> list[str]:
         """Every Storage object under a manga (cover + section covers + pages) —
         gathered before delete, since the DB cascade drops rows, not files."""
@@ -246,12 +292,16 @@ class ReadRepository:
         )
         return list(result.scalars().all())
 
-    async def count_library_assets(self, user_id: uuid.UUID) -> int:
-        """Counts reserved-but-unfilled slots too (deliberately no `storage_path`
-        filter here) — that's what makes `reserve_library_asset_slots` safe
-        against a second concurrent batch reading a stale count."""
+    async def next_library_position(self, user_id: uuid.UUID) -> int:
+        """One past the highest pool position (0 for an empty pool).
+
+        Not a row count: taking an asset out of the pool (into a section, or
+        discarded) leaves a gap, and a count would then hand out a position
+        that's still taken. Reserved-but-unfilled slots are included
+        (deliberately no `storage_path` filter) — that's what makes
+        `reserve_library_asset_slots` safe against a second concurrent batch."""
         result = await self._session.execute(
-            select(func.count()).select_from(LibraryAsset).where(LibraryAsset.user_id == user_id)
+            select(func.coalesce(func.max(LibraryAsset.position), -1) + 1).where(LibraryAsset.user_id == user_id)
         )
         return result.scalar_one()
 
@@ -268,13 +318,13 @@ class ReadRepository:
         method's commit) before reading the current count: two batches for the
         same user landing at once (e.g. a scrape import and an upload import
         both starting around the same time) would otherwise both read the same
-        count and collide on `position`. The lock is held only for this fast
+        next position and collide on `position`. The lock is held only for this fast
         insert, never across the slow download/upload phase that follows.
         """
         await self._session.execute(
             text("select pg_advisory_xact_lock(hashtext(:user_id)::bigint)"), {"user_id": str(user_id)}
         )
-        start_position = await self.count_library_assets(user_id)
+        start_position = await self.next_library_position(user_id)
         assets = [
             LibraryAsset(user_id=user_id, source_url=source_url, position=start_position + index)
             for index, source_url in enumerate(source_urls)

@@ -184,6 +184,17 @@ class ReadService:
             await self._repo.rollback()
         return reordered
 
+    async def delete_page(self, page_id: uuid.UUID) -> bool:
+        """Remove one page (row + its Storage object); later pages move up one."""
+        page = await self._repo.get_page(page_id, self._user_id)
+        if page is None:
+            return False
+        storage_path = page.storage_path
+        await self._repo.delete_page(page)
+        await self._repo.commit()
+        await self._storage.remove([storage_path])
+        return True
+
     # --- library pool --------------------------------------------------------
 
     async def list_library(self) -> list[LibraryAssetInfo]:
@@ -210,11 +221,13 @@ class ReadService:
             yield line
 
     async def organize_from_library(
-        self, section_id: uuid.UUID, asset_ids: list[uuid.UUID]
+        self, section_id: uuid.UUID, asset_ids: list[uuid.UUID], at: int | None = None
     ) -> list[PageInfo] | None:
         """Pool -> section: each asset becomes a page (reusing its existing Storage
         object — no byte move) and is removed from the pool, in one transaction.
-        None if the section isn't owned; 400 if an asset id isn't an owned pool asset.
+        `at` inserts them starting at that position (later pages move down);
+        None appends. None if the section isn't owned; 400 if an asset id isn't
+        an owned pool asset.
         """
         if await self._repo.get_section(section_id, self._user_id) is None:
             return None
@@ -222,7 +235,7 @@ class ReadService:
         if len(assets) != len(asset_ids):
             raise HTTPException(status_code=400, detail="one or more asset_ids are not owned pool assets")
 
-        start_position = await self._repo.count_pages(section_id)
+        start_position = await self._repo.reserve_positions(section_id, len(assets), at)
         rows = [
             {
                 "storage_path": asset.storage_path,

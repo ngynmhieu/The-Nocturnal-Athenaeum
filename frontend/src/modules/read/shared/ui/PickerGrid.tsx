@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { ImportStatus } from "../importStatus";
@@ -29,7 +30,15 @@ interface PickerGridProps {
    *  was going — e.g. the pool grid — rather than waiting for the whole batch). */
   importStatus?: Record<string, ImportStatus>;
   itemNoun?: string;
+  /** Caption after the count — defaults to the click-to-pick instruction. */
+  hint?: string;
   onConfirm: () => void;
+  /** Shows a "Delete N" button beside the confirm button that deletes the picked
+   *  items (e.g. discarding from the pool) — first click arms it, second
+   *  deletes. Omit and the grid offers no deleting. */
+  onDeletePicked?: () => void;
+  /** A delete is in progress. */
+  deleting?: boolean;
 }
 
 /** Shared "click to pick, in order, then confirm" grid — scraped candidates and
@@ -47,8 +56,13 @@ export function PickerGrid({
   confirmLabel,
   importStatus,
   itemNoun = "image",
+  hint = "click to pick, in reading order.",
   onConfirm,
+  onDeletePicked,
+  deleting = false,
 }: PickerGridProps) {
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const count = `${picked.length} ${itemNoun}${picked.length > 1 ? "s" : ""}`;
   const visibleItems = items.filter((item) => importStatus?.[item.key] !== "done");
   if (visibleItems.length === 0) return null;
 
@@ -57,7 +71,7 @@ export function PickerGrid({
       <div className="flex items-center gap-3">
         <p className="text-xs text-[var(--owl-brown-muted)]">
           {visibleItems.length} {itemNoun}
-          {visibleItems.length > 1 ? "s" : ""} — click to pick, in reading order.
+          {visibleItems.length > 1 ? "s" : ""} — {hint}
         </p>
         {!singleSelect && (
           <button onClick={onSelectAll} className="text-xs text-[var(--owl-orange-deep)] hover:underline cursor-pointer">
@@ -92,14 +106,39 @@ export function PickerGrid({
         </AnimatePresence>
       </div>
       {picked.length > 0 && (
-        <button
-          onClick={onConfirm}
-          disabled={busy}
-          className="flex w-fit items-center gap-1.5 rounded-md bg-[var(--owl-brown)] px-3 py-1.5 text-sm text-[var(--owl-cream)] hover:bg-[var(--owl-brown-deep)] transition-colors cursor-pointer disabled:opacity-50 mt-2"
-        >
-          {busy && <Loader2 size={14} aria-hidden="true" className="animate-spin" />}
-          {busy ? busyLabel : `${confirmLabel} ${picked.length} ${itemNoun}${picked.length > 1 ? "s" : ""}`}
-        </button>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            onClick={onConfirm}
+            disabled={busy || deleting}
+            className="flex w-fit items-center gap-1.5 rounded-md bg-[var(--owl-brown)] px-3 py-1.5 text-sm text-[var(--owl-cream)] hover:bg-[var(--owl-brown-deep)] transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {busy && <Loader2 size={14} aria-hidden="true" className="animate-spin" />}
+            {busy ? busyLabel : `${confirmLabel} ${count}`}
+          </button>
+          {onDeletePicked && (
+            <button
+              onClick={() => {
+                if (!deleteArmed) {
+                  setDeleteArmed(true);
+                  return;
+                }
+                setDeleteArmed(false);
+                onDeletePicked();
+              }}
+              onMouseLeave={() => setDeleteArmed(false)}
+              onBlur={() => setDeleteArmed(false)}
+              disabled={busy || deleting}
+              className={`flex w-fit items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors cursor-pointer disabled:opacity-50 ${
+                deleteArmed
+                  ? "border-[var(--owl-danger)] bg-[var(--owl-danger)] text-[var(--owl-cream)]"
+                  : "border-[var(--owl-border)] text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10"
+              }`}
+            >
+              {deleting && <Loader2 size={14} aria-hidden="true" className="animate-spin" />}
+              {deleting ? "Deleting…" : deleteArmed ? `Confirm delete ${count}?` : `Delete ${count}`}
+            </button>
+          )}
+        </div>
       )}
     </>
   );

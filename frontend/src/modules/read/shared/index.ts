@@ -6,11 +6,14 @@ export type {
   PageInfo,
   LibraryAssetInfo,
   ScrapeCandidate,
+  ScrapeResult,
+  SeriesEntry,
+  PageSize,
   SectionCreateInput,
   LibraryAssetRecordInput,
 } from "./api/readApi";
 export { useSignedUrls } from "./useSignedUrls";
-export { readImageSize, fileExtension } from "./imageSize";
+export { readImageSize, fileExtension, sizesByUrl } from "./imageSize";
 export { PickerGrid } from "./ui/PickerGrid";
 export type { PickerItem } from "./ui/PickerGrid";
 export { Tile } from "./ui/Tile";

@@ -1,10 +1,11 @@
 """HTTP routes for the read module — thin orchestration only."""
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from .dependencies import get_read_service, get_scrape_service
+from .extractors import ExtractorError
 from .schemas import (
     CoverFromLibraryRequest,
     ImportRequest,
@@ -24,6 +25,8 @@ from .schemas import (
     SectionCreate,
     SectionSummary,
     SectionUpdate,
+    SeriesRequest,
+    SeriesResult,
 )
 from .services import ReadService, ScrapeService
 
@@ -152,20 +155,40 @@ async def reorder_pages(
         )
 
 
+@router.delete("/pages/{page_id}", status_code=204)
+async def delete_page(page_id: uuid.UUID, service: ReadService = Depends(get_read_service)):
+    if not await service.delete_page(page_id):
+        raise HTTPException(status_code=404, detail="Page not found")
+
+
 # --- scrape + import --------------------------------------------------------
 
 @router.post("/scrape", response_model=ScrapeResult)
 async def scrape(body: ScrapeRequest, service: ScrapeService = Depends(get_scrape_service)):
-    return await service.scrape(body.url)
+    try:
+        return await service.scrape(body.url)
+    except ExtractorError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/scrape/series", response_model=SeriesResult)
+async def list_series(body: SeriesRequest, service: ScrapeService = Depends(get_scrape_service)):
+    try:
+        return await service.list_series(body.url, body.language)
+    except ExtractorError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.post("/sections/{section_id}/import", response_model=list[PageInfo])
 async def import_into(
     section_id: uuid.UUID,
     body: ImportRequest,
+    at: int | None = Query(default=None, ge=0),
     service: ScrapeService = Depends(get_scrape_service),
 ):
-    pages = await service.import_into(section_id, body.urls, body.referer)
+    """`?at=N` inserts the pages starting at position N (later pages move down);
+    without it they're appended."""
+    pages = await service.import_into(section_id, body.urls, body.referer, body.sizes, at)
     if pages is None:
         raise HTTPException(status_code=404, detail="Section not found")
     return pages
@@ -204,9 +227,11 @@ async def import_to_library(
 async def organize_from_library(
     section_id: uuid.UUID,
     body: OrganizeRequest,
+    at: int | None = Query(default=None, ge=0),
     service: ReadService = Depends(get_read_service),
 ):
-    pages = await service.organize_from_library(section_id, body.asset_ids)
+    """`?at=N` inserts at position N (later pages move down); default appends."""
+    pages = await service.organize_from_library(section_id, body.asset_ids, at)
     if pages is None:
         raise HTTPException(status_code=404, detail="Section not found")
     return pages

@@ -39,10 +39,15 @@ It does **not** own:
 ```
 backend/app/modules/read/
 ├── __init__.py
-├── router.py            # HTTP endpoints: /read/mangas*, /read/sections*, /read/pages*, /read/library*, /scrape, /import
+├── router.py            # HTTP endpoints: /read/mangas*, /read/sections*, /read/pages*, /read/library*, /scrape*, /import
 ├── repository.py        # ReadRepository — all DB access (mangas/sections/pages/library), user-scoped
 ├── models.py            # Manga, MangaSection, MangaPage, LibraryAsset ORM (Supabase-migrated tables)
 ├── scraper.py           # Extracted component — fetch a page URL, extract image candidates
+├── extractors/          # Per-site extractors for readers the generic scraper can't read
+│   ├── __init__.py      #   for_url(url) — which site (if any) owns a URL
+│   ├── base.py          #   ExtractorError (user-facing message), SeriesEntry
+│   ├── browser.py       #   Playwright helper — open a page headlessly, capture one JSON response
+│   └── mangafire.py     #   mangafire.to — volume/chapter pages + a series' volume list
 ├── dependencies.py      # DI: get_read_service / get_scrape_service
 ├── schemas/             # API-boundary shapes, grouped by purpose (package)
 │   ├── __init__.py      #   public surface — re-exports; lists request vs response
@@ -50,7 +55,7 @@ backend/app/modules/read/
 │   ├── section.py       #   SectionCreate (req) · SectionSummary (resp)
 │   ├── page.py          #   PageRecord/ReorderRequest (req) · PageInfo (resp)
 │   ├── library.py       #   LibraryAssetRecord/OrganizeRequest (req) · LibraryAssetInfo (resp)
-│   └── scrape.py        #   ScrapeRequest/ImportRequest (req) · ScrapeResult (resp)
+│   └── scrape.py        #   ScrapeRequest/SeriesRequest/ImportRequest (req) · ScrapeResult/SeriesResult (resp)
 └── services/            # Service layer — one scope per file
     ├── __init__.py
     ├── read.py          #   ReadService — CRUD over mangas/sections/pages + reorder + pool organize/discard + file cleanup
@@ -80,13 +85,22 @@ delegates — no branching here.
 | `GET /read/sections/{id}/pages` | `ReadService.list_pages(id)` → ordered `PageInfo[]` |
 | `POST /read/sections/{id}/pages` | `ReadService.record_pages(id, body)` — persist rows for already-uploaded files |
 | `PATCH /read/sections/{id}/pages/order` | `ReadService.reorder_pages(id, body)` |
-| `POST /read/scrape` | `ScrapeService.scrape(url)` → candidate image URLs |
-| `POST /read/sections/{id}/import` | `ScrapeService.import_into(id, body)` — download + upload + record (straight into a section) |
+| `DELETE /read/pages/{id}` | `ReadService.delete_page(id)` — row + Storage file; later pages move up one (`ReadRepository.delete_page`) |
+| `POST /read/scrape` | `ScrapeService.scrape(url)` → candidate image URLs (+ the `referer` downloads need); a direct image link comes back as a single candidate. 422 on `ExtractorError` — including a site refusing the fetch (e.g. 403 from bot protection), with a hint to paste the image address instead |
+| `POST /read/scrape/series` | `ScrapeService.list_series(url, language)` → a series' volumes in reading order; 422 on `ExtractorError` |
+| `POST /read/sections/{id}/import` | `ScrapeService.import_into(id, body, at)` — the **direct pull**: download + upload + record straight into a section, in request order. `?at=N` inserts from position N instead of appending |
 | `GET /read/library` | `ReadService.list_library()` → the user's pool, in collect order |
 | `POST /read/library` | `ReadService.stream_record_library_assets(body)` — NDJSON stream, one line per pool file the frontend already uploaded |
 | `POST /read/library/import` | `ScrapeService.stream_import_to_library(body)` — NDJSON stream, one line per scrape candidate downloaded into the pool |
-| `POST /read/sections/{id}/pages/from-library` | `ReadService.organize_from_library(id, body)` — move ordered pool assets into a section |
+| `POST /read/sections/{id}/pages/from-library` | `ReadService.organize_from_library(id, body, at)` — move ordered pool assets into a section; `?at=N` inserts from position N (the reader's "add page before/after") |
 | `DELETE /read/library/{id}` | `ReadService.discard_library_asset(id)` (also deletes the Storage file) |
+
+Inserting in the middle and deleting both keep positions contiguous from 0:
+`ReadRepository.reserve_positions(section, count, at)` shifts the pages from `at`
+down by `count` before the insert, and `delete_page` shifts the later ones up by
+one. Both go through negative positions first (`_shift_positions`), like
+`set_positions`, because the unique `(section_id, position)` index is checked row
+by row.
 
 ### `services/read.py` — `ReadService` (request-scoped)
 CRUD + reorder over the four tables, scoped to `user.id` on every query (the
@@ -118,14 +132,19 @@ It also owns the **pool** side (`library_assets`):
 
 ### `services/scrape.py` — `ScrapeService` (request-scoped)
 Deliberately split across requests so the user picks in between:
-1. `scrape(url)` — delegate to `scraper.py` to fetch + extract candidate image URLs,
-   return them (with dimensions/preview where available). No persistence.
-2. `import_into(section_id, ordered_urls)` — the **direct** path: for each chosen URL,
-   download the image **server-side** (browsers can't fetch cross-origin/hotlink-
-   protected images), upload it to the `manga` bucket under the user's section prefix
-   via `shared/storage/` (service-role), then record the `manga_pages` row in order.
-   Still a single batched response (in scope: reordering already lives in the
-   reader, not here — see *Reading — fast & modern* in the frontend doc).
+1. `scrape(url)` — ask `extractors.for_url(url)` first; a per-site extractor wins,
+   otherwise delegate to the generic `scraper.py`. Returns candidate image URLs (with
+   dimensions where known) plus the extractor's required `referer`. No persistence.
+   `list_series(url, language)` is the series-level twin: a supported site's volume
+   list, each entry's `url` feeding back into `scrape`.
+2. `import_into(section_id, ordered_urls, referer, sizes)` — the **direct pull**: for
+   each chosen URL, download the image **server-side** (browsers can't fetch
+   cross-origin/hotlink-protected images), upload it to the `manga` bucket under the
+   user's section prefix via `shared/storage/` (service-role), then record the
+   `manga_pages` rows. Positions come from the request order and are fixed before the
+   (concurrent, bounded) downloads and uploads start, so pages land in exactly the
+   order sent — for an extractor, the site's own page order. `sizes` (keyed by URL)
+   fills `width`/`height` when the source knows them. Still a single batched response.
 3. `stream_import_to_library(urls)` — the **pool** path (the decoupled flow), now
    streamed: see `services/library_stream.py`.
 
@@ -166,6 +185,31 @@ params (with defaults for client-only state like `reading_style`) the endpoint
 requires. Sends a browser `User-Agent` so Cloudflare/CDNs don't reject it. Ships a
 generic extractor; per-site extractors can be added behind the same interface later.
 
+### `extractors/` — per-site extractors
+For readers the generic scraper can't read. Each site module exposes `matches(url)`,
+`scrape(url)`, `list_series(url, language)` and a `REFERER` constant; `for_url()`
+picks the owner of a URL. A failure raises `ExtractorError`, whose message the
+router returns as a 422 `detail` for the UI to show.
+
+- `browser.py` — some readers are fully client-rendered: the HTML is an empty shell
+  and the page list comes from the site's own API, signed with a token its
+  JavaScript builds. Rather than reimplement that, `capture_json(url, pattern)` opens
+  the page in headless Chromium (Playwright) like a normal visitor and returns the
+  JSON body of the first response matching `pattern`. It runs in its own thread +
+  event loop (Proactor on Windows, which Playwright's subprocess needs), launches a
+  fresh browser per call, and imports Playwright lazily, so the backend still starts
+  without it (the extractor then fails with an install hint).
+- `mangafire.py` — `/title/{slug}/volume/{id}` and `/title/{slug}/chapter/{id}`
+  pages: captures `/api/volumes/{id}` / `/api/chapters/{id}` (ordered pages with
+  sizes). `/title/{slug}`: captures `/api/titles/{hid}/volumes` (every volume, all
+  languages; filtered to `language`). Chapters aren't listed at series level: the
+  site pages them 20 at a time, so chapters are pulled one link at a time. Its CDN
+  requires `Referer: https://mangafire.to/`.
+
+Playwright is a backend dependency (`requirements.txt`) plus a one-time
+`python -m playwright install chromium` (the Dockerfile does this with
+`--with-deps`; `run_backend.bat` runs it on every launch, a no-op once installed).
+
 > **Responsible-use note.** Scraping re-hosts third-party images; only content the user
 > is authorized to copy should be imported. Respecting each site's ToS/robots is the
 > user's responsibility — the component stays generic and adds no evasion.
@@ -175,8 +219,9 @@ All DB access for the four tables, every method filtering/joining on ownership:
 `list_mangas(user_id)`, `get_manga(id, user_id)`, `create_manga`, `update_manga`,
 `delete_manga`, `create_section`, `delete_section`, `list_pages(section_id)`,
 `insert_pages(rows)`, `set_positions(...)`, plus the pool:
-`list_library(user_id)`, `count_library_assets(user_id)` (counts reserved-but-
-unfilled slots too — deliberately no `storage_path` filter, unlike `list_library`),
+`list_library(user_id)`, `next_library_position(user_id)` (one past the highest
+position — not a count, since taking assets out of the pool leaves gaps; includes
+reserved-but-unfilled slots — deliberately no `storage_path` filter, unlike `list_library`),
 `reserve_library_asset_slots(user_id, source_urls)` (the upfront reservation step —
 see `services/library_stream.py`), `fill_library_asset(asset_id, fields)` (completes
 a reserved slot), `get_library_assets(ids, user_id)`, `delete_library_assets(ids,
@@ -253,8 +298,9 @@ path" (a request, no bytes), and the constant thing the backend actually does is
 
 New `core/config.py` keys (server-only): `SUPABASE_SERVICE_ROLE_KEY` (**secret — never
 exposed to the frontend**) and `MANGA_BUCKET` (default `"manga"`). New deps:
-`selectolax` (HTML parsing) and `httpx` (fetch/download) — see `shared/storage/` in the
-backend guidelines for the Storage client itself.
+`selectolax` (HTML parsing), `httpx` (fetch/download) and `playwright` (headless
+Chromium for `extractors/`) — see `shared/storage/` in the backend guidelines for the
+Storage client itself.
 
 ---
 
@@ -268,6 +314,7 @@ modules/read/router.py
     │       │       # mangas/sections/pages + library_assets (pool); organize = one txn
     │       └─→ shared/storage/ (delete objects on page/manga/section delete or pool discard)
     └─→ modules/read/services/scrape.py (ScrapeService)
+            ├─→ modules/read/extractors/ (per-site; Playwright → image candidates / series list)
             ├─→ modules/read/scraper.py (httpx + selectolax → image candidates)
             ├─→ modules/read/repository.py (record imported pages OR pool assets)
             └─→ shared/storage/ (upload downloaded images, service-role)
@@ -282,4 +329,4 @@ modules/read/router.py
 - Thumbnail generation (Supabase image transforms) for grid/cover views.
 - Reading-progress persistence (`last_position` per section) once the reader lands.
 - Pagination on the library + page lists once volumes grow.
-- Per-site scrape extractors behind the generic one.
+- More per-site extractors; a series-level chapter list (needs paging through the site's UI).

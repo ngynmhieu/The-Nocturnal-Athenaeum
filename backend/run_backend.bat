@@ -17,5 +17,8 @@ if not exist "backend\.venv" (
     cd ..
 )
 
+REM Headless Chromium for the read module's per-site extractors (no-op once installed)
+python -m playwright install chromium >nul 2>&1 || echo [warn] Playwright missing - run: pip install -r backendequirements.txt
+
 REM Run the backend
 python -m backend.run_backend

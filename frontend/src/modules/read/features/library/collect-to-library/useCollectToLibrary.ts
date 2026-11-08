@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { uploadToBucket, mapWithConcurrency } from "@/shared/lib";
+import { uploadToBucket, mapWithConcurrency, randomUUID } from "@/shared/lib";
 import { useSession } from "@/modules/auth";
 import { readApi, readImageSize, fileExtension, type ImportStatus } from "../../../shared";
 import type { LibraryAsset } from "../../../entities";
@@ -26,8 +26,9 @@ function resolveStuckToError(status: Record<string, ImportStatus>): Record<strin
  *  land in `{user_id}/_pool/` with no manga attached: scrape candidates go
  *  through the backend (server-side download), local files go direct-to-storage
  *  then get recorded. Inserting them into a section is a separate, later
- *  action (`insert-from-library`) — the *only* way pages reach a section, so
- *  every "add pages" flow collects here first (see `PoolPickerModal`).
+ *  action (`insert-from-library`, see `PoolPickerModal`). The other way pages
+ *  reach a section skips the pool entirely: a direct pull from a link
+ *  (`pull-pages` / `pull-series`).
  *
  *  Both endpoints stream one result per item as it finishes (not batched to
  *  the end) — `onItem` fires per item so the caller can reveal it in the pool
@@ -70,7 +71,7 @@ export function useCollectToLibrary() {
         // keeps the results index-aligned to `items`, so the one streamed
         // record call below still reports them against the original items.
         const uploaded = await mapWithConcurrency(items, CONCURRENCY, async ({ file }) => {
-          const path = `${user.id}/_pool/${crypto.randomUUID()}${fileExtension(file)}`;
+          const path = `${user.id}/_pool/${randomUUID()}${fileExtension(file)}`;
           const size = await readImageSize(file);
           await uploadToBucket(path, file);
           return { storagePath: path, width: size?.width, height: size?.height };

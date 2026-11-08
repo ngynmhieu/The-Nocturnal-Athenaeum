@@ -1,28 +1,32 @@
 import { useCallback, useState } from "react";
 import { readApi, type ScrapeCandidate } from "../../../shared";
 
-/** Paste a URL → backend fetches the page and returns candidate images for the
- *  user to pick from. No persistence — import is a separate, second action. */
+/** Paste a URL → backend fetches the page and returns its candidate images (also
+ *  returned from `scrape`, so a caller can act on them right away). No
+ *  persistence — collecting them is the caller's next step. */
 export function useScrapePages() {
   const [candidates, setCandidates] = useState<ScrapeCandidate[]>([]);
-  /** The page URL the candidates came from — imports send it as the Referer. */
+  /** What imports send as the Referer — the extractor's required one when it
+   *  names one, otherwise the page URL the candidates came from. */
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [scraping, setScraping] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const scrape = useCallback(async (url: string) => {
+  const scrape = useCallback(async (url: string): Promise<{ candidates: ScrapeCandidate[]; referer: string } | null> => {
     const trimmed = url.trim();
-    if (!trimmed) return;
+    if (!trimmed) return null;
     setScraping(true);
     setError(null);
     try {
       const result = await readApi.scrape(trimmed);
       setCandidates(result.candidates);
-      setSourceUrl(trimmed);
+      setSourceUrl(result.referer ?? trimmed);
+      return { candidates: result.candidates, referer: result.referer ?? trimmed };
     } catch (err) {
       setError((err as Error).message);
       setCandidates([]);
       setSourceUrl(null);
+      return null;
     } finally {
       setScraping(false);
     }

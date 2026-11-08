@@ -54,6 +54,25 @@ export interface ScrapeCandidate {
   height: number | null;
 }
 
+export interface ScrapeResult {
+  candidates: ScrapeCandidate[];
+  /** Set when a per-site extractor knows what its image CDN requires as Referer. */
+  referer: string | null;
+}
+
+/** One volume/chapter listed on a series page — `url` goes back into `scrape`. */
+export interface SeriesEntry {
+  kind: "volume" | "chapter";
+  number: number | null;
+  title: string | null;
+  url: string;
+}
+
+export interface PageSize {
+  width: number | null;
+  height: number | null;
+}
+
 export interface SectionCreateInput {
   kind: "volume" | "chapter";
   number?: number | null;
@@ -100,6 +119,9 @@ async function* requestStream<T>(path: string, init: RequestInit = {}): AsyncGen
     yield camelcaseKeys(raw, { deep: true }) as T;
   }
 }
+
+/** `?at=N` — insert new pages from position N instead of appending. */
+const atQuery = (at?: number) => (at === undefined ? "" : `?at=${at}`);
 
 export const readApi = {
   // --- mangas ---
@@ -163,6 +185,9 @@ export const readApi = {
   // --- pages ---
   listPages: (sectionId: string) => request<PageInfo[]>(`/read/sections/${sectionId}/pages`),
 
+  /** Removes the page row and its Storage object; later pages move up one. */
+  deletePage: (pageId: string) => request<void>(`/read/pages/${pageId}`, { method: "DELETE" }),
+
   reorderPages: (sectionId: string, orderedPageIds: string[]) =>
     request<void>(`/read/sections/${sectionId}/pages/order`, {
       method: "PATCH",
@@ -171,9 +196,30 @@ export const readApi = {
 
   // --- scrape + import ---
   scrape: (url: string) =>
-    request<{ candidates: ScrapeCandidate[] }>("/read/scrape", {
+    request<ScrapeResult>("/read/scrape", {
       method: "POST",
       body: JSON.stringify({ url }),
+    }),
+
+  scrapeSeries: (url: string) =>
+    request<{ entries: SeriesEntry[] }>("/read/scrape/series", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+
+  /** Direct pull: the backend downloads `urls` and appends them to the section in
+   *  exactly this order — no pool in between. `sizes` is keyed by URL. `at`
+   *  inserts them from that position instead (later pages move down). */
+  importIntoSection: (
+    sectionId: string,
+    urls: string[],
+    referer?: string | null,
+    sizes?: Record<string, PageSize>,
+    at?: number
+  ) =>
+    request<PageInfo[]>(`/read/sections/${sectionId}/import${atQuery(at)}`, {
+      method: "POST",
+      body: JSON.stringify({ urls, referer: referer ?? null, sizes: sizes ?? {} }),
     }),
 
   // --- library pool ---
@@ -198,8 +244,9 @@ export const readApi = {
       body: JSON.stringify({ urls, referer: referer ?? null }),
     }),
 
-  insertFromLibrary: (sectionId: string, assetIds: string[]) =>
-    request<PageInfo[]>(`/read/sections/${sectionId}/pages/from-library`, {
+  /** `at` inserts from that position (later pages move down); omitted, they're appended. */
+  insertFromLibrary: (sectionId: string, assetIds: string[], at?: number) =>
+    request<PageInfo[]>(`/read/sections/${sectionId}/pages/from-library${atQuery(at)}`, {
       method: "POST",
       body: JSON.stringify({ asset_ids: assetIds }),
     }),
