@@ -48,11 +48,11 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
   const urls = useSignedUrls(assets.map((a) => a.storagePath));
   const { picked, setPicked, onItemClick: multiItemClick } = useClickSelect(assets.map((a) => a.id));
   const { importUrlsToLibrary, uploadFilesToLibrary, collecting, importStatus } = useCollectToLibrary();
-  const { discardImage, deletingIds } = useDiscardFromLibrary();
-  // Discarding removes the image for good (row + Storage file), then drops it
-  // from the grid and from the current picks.
-  const discard = (assetId: string) =>
-    discardImage(assetId, (id) => {
+  const { discardImages, deletingIds } = useDiscardFromLibrary();
+  // "Delete N images": removes the picked images for good (row + Storage file),
+  // each dropping out of the grid and the picks as its own request finishes.
+  const deletePicked = () =>
+    discardImages(picked, (id) => {
       removeAssets([id]);
       setPicked((prev) => prev.filter((key) => key !== id));
     });
@@ -169,8 +169,8 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
             confirmLabel={confirmLabel}
             importStatus={target.kind === "section-pages" ? insertStatus : undefined}
             onConfirm={confirm}
-            onRemove={discard}
-            removingKeys={deletingIds}
+            onDeletePicked={deletePicked}
+            deleting={deletingIds.size > 0}
           />
         )}
       </div>
