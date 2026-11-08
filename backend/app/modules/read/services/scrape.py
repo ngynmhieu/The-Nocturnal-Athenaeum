@@ -44,7 +44,18 @@ class ScrapeService:
         (see `extractors/`) wins over the generic scraper when one owns the URL.
         Raises `extractors.ExtractorError` with a user-facing message on failure."""
         site = extractors.for_url(url)
-        candidates = await (site.scrape(url) if site else scraper.scrape(url))
+        try:
+            candidates = await (site.scrape(url) if site else scraper.scrape(url))
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            hint = (
+                " It blocks automated requests — open the page in your browser, right-click "
+                "the image → “Copy image address”, and paste that link instead."
+                if code in (401, 402, 403, 429) else ""
+            )
+            raise extractors.ExtractorError(f"The site refused the request (HTTP {code}).{hint}") from exc
+        except httpx.HTTPError as exc:
+            raise extractors.ExtractorError(f"Couldn't reach that page ({type(exc).__name__}).") from exc
         return ScrapeResult(
             candidates=[ScrapeCandidate.model_validate(c) for c in candidates],
             referer=site.REFERER if site else None,

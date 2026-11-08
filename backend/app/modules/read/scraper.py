@@ -224,6 +224,8 @@ async def fetch_page(
 async def scrape(url: str) -> list[ImageCandidate]:
     """Fetch `url` and return its image candidates. The network-facing entry point.
 
+    A direct image link is returned as its own single candidate.
+
     Static images come straight from the page; for client-rendered readers it also
     follows the page's HTMX lazy-load fragments (reusing the same session) and
     merges their images, deduping by URL while preserving order.
@@ -231,7 +233,13 @@ async def scrape(url: str) -> list[ImageCandidate]:
     async with httpx.AsyncClient(
         headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT
     ) as client:
-        html = await fetch_page(client, url)
+        # Referer = the URL itself: harmless for a page, and what an image host's
+        # hotlink rule wants when the link is a direct image ("Copy image address").
+        response = await client.get(url, headers={"Referer": url}, follow_redirects=True)
+        response.raise_for_status()
+        if (response.headers.get("content-type") or "").startswith("image/"):
+            return [ImageCandidate(url=url)]
+        html = response.text
         candidates = extract_image_candidates(html, base_url=url)
 
         for fragment_url in _htmx_image_fragments(html, url):

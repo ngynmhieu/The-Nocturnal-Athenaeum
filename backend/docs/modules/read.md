@@ -86,7 +86,7 @@ delegates — no branching here.
 | `POST /read/sections/{id}/pages` | `ReadService.record_pages(id, body)` — persist rows for already-uploaded files |
 | `PATCH /read/sections/{id}/pages/order` | `ReadService.reorder_pages(id, body)` |
 | `DELETE /read/pages/{id}` | `ReadService.delete_page(id)` — row + Storage file; later pages move up one (`ReadRepository.delete_page`) |
-| `POST /read/scrape` | `ScrapeService.scrape(url)` → candidate image URLs (+ the `referer` downloads need); 422 on `ExtractorError` |
+| `POST /read/scrape` | `ScrapeService.scrape(url)` → candidate image URLs (+ the `referer` downloads need); a direct image link comes back as a single candidate. 422 on `ExtractorError` — including a site refusing the fetch (e.g. 403 from bot protection), with a hint to paste the image address instead |
 | `POST /read/scrape/series` | `ScrapeService.list_series(url, language)` → a series' volumes in reading order; 422 on `ExtractorError` |
 | `POST /read/sections/{id}/import` | `ScrapeService.import_into(id, body, at)` — the **direct pull**: download + upload + record straight into a section, in request order. `?at=N` inserts from position N instead of appending |
 | `GET /read/library` | `ReadService.list_library()` → the user's pool, in collect order |
