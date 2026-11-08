@@ -292,12 +292,16 @@ class ReadRepository:
         )
         return list(result.scalars().all())
 
-    async def count_library_assets(self, user_id: uuid.UUID) -> int:
-        """Counts reserved-but-unfilled slots too (deliberately no `storage_path`
-        filter here) — that's what makes `reserve_library_asset_slots` safe
-        against a second concurrent batch reading a stale count."""
+    async def next_library_position(self, user_id: uuid.UUID) -> int:
+        """One past the highest pool position (0 for an empty pool).
+
+        Not a row count: taking an asset out of the pool (into a section, or
+        discarded) leaves a gap, and a count would then hand out a position
+        that's still taken. Reserved-but-unfilled slots are included
+        (deliberately no `storage_path` filter) — that's what makes
+        `reserve_library_asset_slots` safe against a second concurrent batch."""
         result = await self._session.execute(
-            select(func.count()).select_from(LibraryAsset).where(LibraryAsset.user_id == user_id)
+            select(func.coalesce(func.max(LibraryAsset.position), -1) + 1).where(LibraryAsset.user_id == user_id)
         )
         return result.scalar_one()
 
@@ -314,13 +318,13 @@ class ReadRepository:
         method's commit) before reading the current count: two batches for the
         same user landing at once (e.g. a scrape import and an upload import
         both starting around the same time) would otherwise both read the same
-        count and collide on `position`. The lock is held only for this fast
+        next position and collide on `position`. The lock is held only for this fast
         insert, never across the slow download/upload phase that follows.
         """
         await self._session.execute(
             text("select pg_advisory_xact_lock(hashtext(:user_id)::bigint)"), {"user_id": str(user_id)}
         )
-        start_position = await self.count_library_assets(user_id)
+        start_position = await self.next_library_position(user_id)
         assets = [
             LibraryAsset(user_id=user_id, source_url=source_url, position=start_position + index)
             for index, source_url in enumerate(source_urls)

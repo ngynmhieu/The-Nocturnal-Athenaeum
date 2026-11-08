@@ -219,8 +219,9 @@ All DB access for the four tables, every method filtering/joining on ownership:
 `list_mangas(user_id)`, `get_manga(id, user_id)`, `create_manga`, `update_manga`,
 `delete_manga`, `create_section`, `delete_section`, `list_pages(section_id)`,
 `insert_pages(rows)`, `set_positions(...)`, plus the pool:
-`list_library(user_id)`, `count_library_assets(user_id)` (counts reserved-but-
-unfilled slots too — deliberately no `storage_path` filter, unlike `list_library`),
+`list_library(user_id)`, `next_library_position(user_id)` (one past the highest
+position — not a count, since taking assets out of the pool leaves gaps; includes
+reserved-but-unfilled slots — deliberately no `storage_path` filter, unlike `list_library`),
 `reserve_library_asset_slots(user_id, source_urls)` (the upfront reservation step —
 see `services/library_stream.py`), `fill_library_asset(asset_id, fields)` (completes
 a reserved slot), `get_library_assets(ids, user_id)`, `delete_library_assets(ids,
