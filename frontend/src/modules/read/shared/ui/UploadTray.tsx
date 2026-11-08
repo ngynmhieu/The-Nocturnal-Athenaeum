@@ -1,3 +1,4 @@
+import { randomUUID } from "@/shared/lib";
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus } from "lucide-react";
 import { useClickSelect } from "../useClickSelect";
@@ -44,7 +45,7 @@ export function UploadTray({ onConfirm, busy, uploadStatus, confirmLabel = "Uplo
     setStaged((prev) => [
       ...prev,
       ...images.map((file) => ({
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         file,
         previewUrl: URL.createObjectURL(file),
       })),

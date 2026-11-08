@@ -23,7 +23,21 @@ export default defineConfig({
     // instead of silently falling back to another port and reintroducing
     // this exact mismatch.
     strictPort: true,
+    // Listen on every network interface, not just localhost, so a phone on the
+    // same Wi-Fi can open http://<this-machine's-LAN-IP>:3000. The backend stays
+    // private on localhost: the browser only ever talks to this server, which
+    // forwards API calls through the proxy below.
+    host: true,
     proxy: {
+      // Local Supabase (Docker, :54321), reached through this same origin so a
+      // phone on the LAN never needs "localhost" — see shared/config/env.ts.
+      // Listed before the backend's '/auth' so '/auth/v1' matches here first.
+      ...Object.fromEntries(
+        ['/auth/v1', '/rest/v1', '/storage/v1', '/realtime/v1'].map((prefix) => [
+          prefix,
+          { target: process.env.SUPABASE_PROXY_TARGET ?? 'http://localhost:54321', changeOrigin: true, ws: true },
+        ])
+      ),
       // Backend serves prefix-less routes (/chat, /health). List each here
       // so the dev server forwards them instead of serving the SPA shell.
       '/chat': {

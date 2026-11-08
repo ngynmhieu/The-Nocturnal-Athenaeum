@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { uploadToBucket, mapWithConcurrency } from "@/shared/lib";
+import { uploadToBucket, mapWithConcurrency, randomUUID } from "@/shared/lib";
 import { useSession } from "@/modules/auth";
 import { readApi, readImageSize, fileExtension, type ImportStatus } from "../../../shared";
 import type { LibraryAsset } from "../../../entities";
@@ -71,7 +71,7 @@ export function useCollectToLibrary() {
         // keeps the results index-aligned to `items`, so the one streamed
         // record call below still reports them against the original items.
         const uploaded = await mapWithConcurrency(items, CONCURRENCY, async ({ file }) => {
-          const path = `${user.id}/_pool/${crypto.randomUUID()}${fileExtension(file)}`;
+          const path = `${user.id}/_pool/${randomUUID()}${fileExtension(file)}`;
           const size = await readImageSize(file);
           await uploadToBucket(path, file);
           return { storagePath: path, width: size?.width, height: size?.height };

@@ -75,7 +75,9 @@ export function Reader({
   };
 
   return (
-    <div className="h-full overflow-y-auto" onScroll={onScroll}>
+    // Desktop scrolls inside this box (and folds the header via onScroll); on a
+    // phone the page itself scrolls, so the header just scrolls away with it.
+    <div className="md:h-full md:overflow-y-auto" onScroll={onScroll}>
       <div className="flex w-full flex-col">
         {pages.map((page) => (
           <PageView key={page.id} page={page} imageUrl={urls[page.storagePath]}>

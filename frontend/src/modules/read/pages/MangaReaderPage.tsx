@@ -58,7 +58,7 @@ export function MangaReaderPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-col md:h-full">
       {/* Folds to zero height (grid-rows 1fr → 0fr) rather than overlaying the
           pages, so the header keeps its transparent look on the app background. */}
       <div

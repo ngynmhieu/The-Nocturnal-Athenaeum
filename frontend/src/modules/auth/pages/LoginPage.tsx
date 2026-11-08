@@ -1,9 +1,16 @@
 import { motion } from "motion/react";
+import { Navigate } from "react-router";
 import { GradientBackground } from "@/shared/ui";
 import owlMascot from "@/shared/assets/owl_reading_book_with_glasses.png";
-import { LoginButton } from "../widgets";
+import { LoginButton, PasswordLoginForm } from "../widgets";
+import { useSession } from "../shared/useSession";
 
 export function LoginPage() {
+  const { status, booting } = useSession();
+  // Password sign-in happens in place (Google's leaves the page and returns to
+  // "/"), so a session appearing here is the cue to move on into the app.
+  if (status === "authenticated" && !booting) return <Navigate to="/" replace />;
+
   return (
     <GradientBackground>
       <div className="flex h-screen flex-col items-center justify-center px-6">
@@ -33,6 +40,14 @@ export function LoginPage() {
           <div className="my-1 h-px w-16 bg-[var(--owl-brown)]/15" />
 
           <LoginButton />
+
+          <div className="flex w-full max-w-xs items-center gap-3 text-xs text-[var(--owl-brown-muted)]">
+            <span className="h-px flex-1 bg-[var(--owl-brown)]/15" />
+            or
+            <span className="h-px flex-1 bg-[var(--owl-brown)]/15" />
+          </div>
+
+          <PasswordLoginForm />
 
           <p className="text-center text-xs text-[var(--owl-brown-muted)]/80">
             Sign in to pick up where you left off

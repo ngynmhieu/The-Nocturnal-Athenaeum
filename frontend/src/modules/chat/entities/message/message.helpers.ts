@@ -1,8 +1,9 @@
+import { randomUUID } from "@/shared/lib";
 import type { Message, MessageStatus, Role } from "./message.types";
 
 export function createMessage(role: Role, content: string, status: MessageStatus = "complete"): Message {
   return {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     role,
     content,
     status,
