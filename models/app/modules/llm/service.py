@@ -54,7 +54,10 @@ class LlmService:
                 media_type="text/event-stream",
             )
 
-        result = self._manager.generate(messages, req.max_tokens, **opts)
+        try:
+            result = self._manager.generate(messages, req.max_tokens, **opts)
+        except ValueError as exc:  # e.g. the latest message alone exceeds n_ctx
+            raise HTTPException(400, str(exc))
         message: dict = {"role": "assistant", "text": result.text}
         if result.thinking:
             message["thinking"] = result.thinking

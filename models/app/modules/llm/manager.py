@@ -71,7 +71,11 @@ class LlmManager:
         self.model: Optional[Llama] = None
         self._template: Optional[jinja2.Template] = None
         self._close_token_id: Optional[int] = None  # first token of </think>
-        # Serializes swaps so a load can't race an in-flight generation.
+        # Serializes every use of the model: swaps and generations. A llama.cpp
+        # context holds one KV cache and is not thread-safe, and FastAPI runs each
+        # request on its own threadpool thread. A plain Lock (not RLock) on purpose:
+        # a stream is consumed across threadpool threads, and Lock may be released
+        # by a different thread than the one that acquired it.
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ #
@@ -183,6 +187,38 @@ class LlmManager:
             **extra,
         )
 
+    def _fit(self, messages: List[MessageDict], *, reserve: int,
+             enable_thinking: bool, reasoning_effort: Optional[str],
+             tools: Optional[list]) -> str:
+        """Render the prompt, dropping the oldest turns until it fits the context.
+
+        llama.cpp refuses a prompt that doesn't fit n_ctx, and callers send the
+        whole conversation. `reserve` keeps room for the tokens still to be
+        generated. System messages and the final message are always kept, and a
+        dropped turn takes its replies with it so history still opens on a user.
+        """
+        budget = self._config.n_ctx - reserve
+        kept = list(messages)
+        while True:
+            prompt = self._render(kept, enable_thinking=enable_thinking,
+                                  reasoning_effort=reasoning_effort, tools=tools)
+            n_tokens = len(self.model.tokenize(prompt.encode("utf-8"), special=True))
+            if n_tokens <= budget:
+                if len(kept) < len(messages):
+                    logger.info("Dropped %d oldest messages to fit n_ctx=%d.",
+                                len(messages) - len(kept), self._config.n_ctx)
+                return prompt
+            oldest = next((i for i, m in enumerate(kept[:-1])
+                           if m.get("role") != "system"), None)
+            if oldest is None:
+                raise ValueError(
+                    f"Prompt needs {n_tokens} tokens but only {budget} of the "
+                    f"{self._config.n_ctx}-token context are left after reserving "
+                    f"{reserve} for the reply.")
+            del kept[oldest]
+            while oldest < len(kept) - 1 and kept[oldest].get("role") not in ("user", "system"):
+                del kept[oldest]
+
     def _sampling_kwargs(self) -> dict:
         """generate() kwargs for the configured sampler (empty -> llama.cpp defaults)."""
         s = self._config.sampling
@@ -228,19 +264,47 @@ class LlmManager:
                  *, enable_thinking: bool = True,
                  reasoning_effort: Optional[str] = None,
                  tools: Optional[list] = None) -> GenerateResult:
+        with self._lock:
+            return self._generate_locked(messages, max_new_tokens,
+                                         enable_thinking=enable_thinking,
+                                         reasoning_effort=reasoning_effort, tools=tools)
+
+    def stream(self, messages: List[MessageDict], max_new_tokens: int | None = None,
+               *, enable_thinking: bool = True,
+               reasoning_effort: Optional[str] = None,
+               tools: Optional[list] = None) -> Iterator[Tuple[str, str]]:
+        # Held from the first chunk until the stream is exhausted or closed; a
+        # client disconnect closes the generator, which releases the lock.
+        with self._lock:
+            yield from self._stream_locked(messages, max_new_tokens,
+                                           enable_thinking=enable_thinking,
+                                           reasoning_effort=reasoning_effort, tools=tools)
+
+    def _prepare(self, messages: List[MessageDict], max_new_tokens: Optional[int], *,
+                 enable_thinking: bool, reasoning_effort: Optional[str],
+                 tools: Optional[list]) -> Tuple[bool, int, str]:
+        """Resolve thinking + answer budget and render a prompt that fits n_ctx."""
         enable_thinking = self._thinking(enable_thinking)
         answer_budget = max_new_tokens or self._config.max_new_tokens
+        # Phase 2 continues from phase 1's prompt, so thinking (plus the wrap-up
+        # message, ~32 tokens) must fit alongside the answer.
+        reserve = answer_budget + (self._config.max_thinking_tokens + 32
+                                   if enable_thinking else 0)
+        prompt = self._fit(messages, reserve=reserve, enable_thinking=enable_thinking,
+                           reasoning_effort=reasoning_effort, tools=tools)
+        return enable_thinking, answer_budget, prompt
+
+    def _generate_locked(self, messages: List[MessageDict], max_new_tokens: int | None,
+                         **opts) -> GenerateResult:
+        enable_thinking, answer_budget, prompt = self._prepare(
+            messages, max_new_tokens, **opts)
         sampling = self._sampling_kwargs()
 
         if not enable_thinking:
-            prompt = self._render(messages, enable_thinking=False,
-                                  reasoning_effort=reasoning_effort, tools=tools)
             out = self.model(prompt, max_tokens=answer_budget, **sampling)
             return GenerateResult(thinking="", text=out["choices"][0]["text"].strip("\n"))
 
         # Phase 1 — thinking, capped at its own budget, stopping at </think>.
-        prompt = self._render(messages, enable_thinking=True,
-                              reasoning_effort=reasoning_effort, tools=tools)
         think_budget = self._config.max_thinking_tokens
         out1 = self.model(
             prompt, max_tokens=think_budget, stop=[THINK_CLOSE],
@@ -259,17 +323,13 @@ class LlmManager:
             text=out2["choices"][0]["text"].strip("\n"),
         )
 
-    def stream(self, messages: List[MessageDict], max_new_tokens: int | None = None,
-               *, enable_thinking: bool = True,
-               reasoning_effort: Optional[str] = None,
-               tools: Optional[list] = None) -> Iterator[Tuple[str, str]]:
-        enable_thinking = self._thinking(enable_thinking)
-        answer_budget = max_new_tokens or self._config.max_new_tokens
+    def _stream_locked(self, messages: List[MessageDict], max_new_tokens: int | None,
+                       **opts) -> Iterator[Tuple[str, str]]:
+        enable_thinking, answer_budget, prompt = self._prepare(
+            messages, max_new_tokens, **opts)
         sampling = self._sampling_kwargs()
 
         if not enable_thinking:
-            prompt = self._render(messages, enable_thinking=False,
-                                  reasoning_effort=reasoning_effort, tools=tools)
             for ev in self.model(prompt, max_tokens=answer_budget,
                                  stream=True, **sampling):
                 chunk = ev["choices"][0]["text"]
@@ -278,8 +338,6 @@ class LlmManager:
             return
 
         # Phase 1 — thinking; tag every chunk "thinking" and strip a trailing tag.
-        prompt = self._render(messages, enable_thinking=True,
-                              reasoning_effort=reasoning_effort, tools=tools)
         think_budget = self._config.max_thinking_tokens
         stripper = CloseStripper()
         thinking_parts: List[str] = []

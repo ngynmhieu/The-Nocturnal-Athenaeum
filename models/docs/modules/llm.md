@@ -146,6 +146,16 @@ The chat template ships inside the GGUF (`tokenizer.chat_template` metadata).
 `reasoning_effort` and `tools`. There is no tokenizer repo to download and no
 transformers dependency.
 
+### Fitting the context window
+
+llama.cpp rejects a prompt longer than `n_ctx`, and the backend sends the whole
+conversation. `_fit()` renders the prompt and, while it exceeds `n_ctx` minus the
+tokens still to be generated (answer budget, plus thinking budget when thinking is
+on), drops the oldest turn — a user message together with the replies that
+followed it. System messages and the latest message are always kept. If the
+latest message alone does not fit, the request fails with a clear `ValueError`
+(HTTP 400 for non-streaming requests, an SSE error frame for streaming ones).
+
 ### Graceful budget handling
 
 **1. `ThinkingBudgetProcessor`** (proactive, preferred)
@@ -193,8 +203,12 @@ stream. `flush()` must be called after the stream ends to emit any held-back tai
 ## 4. Model lifecycle (`manager.py`)
 
 `LlmManager` is a module-level singleton (`manager = LlmManager()`). It holds one
-model resident at a time and serializes load/swap operations with a threading lock
-so an in-flight generation can't race a model swap.
+model resident at a time, and **one lock serializes every use of it** — loads,
+swaps and generations. A llama.cpp context owns a single KV cache and is not
+thread-safe, while FastAPI runs each request on its own threadpool thread, so
+concurrent requests queue rather than decode together. A stream holds the lock
+from its first chunk until it finishes or the client disconnects (closing the
+generator releases it).
 
 ### Load
 
@@ -315,5 +329,6 @@ accessible via `choice.delta.model_extra` when using the OpenAI Python SDK.
 | Repetition loops in thinking | Raise `presence_penalty` (up to ~2.0) | JSON `sampling` block |
 | Answer too short | Raise `max_new_tokens` | JSON |
 | Out of VRAM at load | Lower `n_ctx`, then `n_gpu_layers`, or pick a smaller `gguf_file` | JSON |
+| Long chats forget early messages | Raise `n_ctx` (costs VRAM) — older turns are dropped to fit | JSON |
 | Output too random / hallucinating | Lower `temperature` toward `0.6` | JSON `sampling` block |
 | No thinking block wanted | Drop `"thinking"` from `capabilities` or send `"enable_thinking": false` | JSON or request |
