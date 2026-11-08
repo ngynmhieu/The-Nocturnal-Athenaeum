@@ -122,7 +122,6 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
           <ScrapePicker
             busy={collecting}
             importStatus={importStatus}
-            importLabel="Collect"
             onImport={async (scrapedUrls, referer) => {
               await importUrlsToLibrary(scrapedUrls, referer, (_key, result) => {
                 if (result.ok) appendAsset(result.asset);
@@ -133,7 +132,6 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
           <UploadTray
             busy={collecting}
             uploadStatus={importStatus}
-            confirmLabel="Collect"
             onConfirm={async (items) => {
               await uploadFilesToLibrary(items, (_key, result) => {
                 if (result.ok) appendAsset(result.asset);

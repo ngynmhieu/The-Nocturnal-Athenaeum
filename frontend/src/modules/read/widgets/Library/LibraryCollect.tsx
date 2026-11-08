@@ -34,7 +34,6 @@ export function LibraryCollect({ onAssetCollected }: LibraryCollectProps) {
         <ScrapePicker
           busy={collecting}
           importStatus={importStatus}
-          importLabel="Collect"
           onImport={async (urls, referer) => {
             await importUrlsToLibrary(urls, referer, (_key, result) => {
               if (result.ok) onAssetCollected(result.asset);
@@ -45,7 +44,6 @@ export function LibraryCollect({ onAssetCollected }: LibraryCollectProps) {
         <UploadTray
           busy={collecting}
           uploadStatus={importStatus}
-          confirmLabel="Collect"
           onConfirm={async (items) => {
             await uploadFilesToLibrary(items, (_key, result) => {
               if (result.ok) onAssetCollected(result.asset);
