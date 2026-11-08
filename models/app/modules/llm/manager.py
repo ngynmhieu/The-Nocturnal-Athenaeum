@@ -207,15 +207,17 @@ class LlmManager:
             [ThinkingBudgetProcessor(self._close_token_id, budget)]
         )
 
-    def _close_thinking(self, prompt: str, thinking: str) -> str:
+    def _close_thinking(self, prompt: str, thinking: str, closed: bool) -> str:
         """Build the phase-2 prompt, force-closing an over-budget thought.
 
-        When the model closed on its own the stop-string swallowed the tag, so it
-        always has to be re-added; if it never closed, the configured wrap-up
-        message goes in first so the thought lands gracefully.
+        `closed` is True when phase 1 ended on the </think> stop-string rather than
+        the token cap. The stop-string is swallowed from the output, so the tag can
+        never be detected in `thinking` and always has to be re-added; if the model
+        never closed, the configured wrap-up message goes in instead so the thought
+        lands gracefully.
         """
-        if THINK_CLOSE in thinking:
-            return prompt + thinking
+        if closed:
+            return prompt + thinking + THINK_CLOSE + "\n\n"
         return prompt + thinking + self._config.thinking_budget_message
 
     # ------------------------------------------------------------------ #
@@ -245,10 +247,11 @@ class LlmManager:
             logits_processor=self._budget_processors(think_budget), **sampling,
         )
         thinking = out1["choices"][0]["text"]
+        closed = out1["choices"][0]["finish_reason"] == "stop"
 
         # Phase 2 — the answer, with its own full budget.
         out2 = self.model(
-            self._close_thinking(prompt, thinking),
+            self._close_thinking(prompt, thinking, closed),
             max_tokens=answer_budget, **sampling,
         )
         return GenerateResult(
@@ -280,10 +283,13 @@ class LlmManager:
         think_budget = self._config.max_thinking_tokens
         stripper = CloseStripper()
         thinking_parts: List[str] = []
+        closed = False
         for ev in self.model(
             prompt, max_tokens=think_budget, stop=[THINK_CLOSE], stream=True,
             logits_processor=self._budget_processors(think_budget), **sampling,
         ):
+            if ev["choices"][0].get("finish_reason") == "stop":
+                closed = True
             chunk = ev["choices"][0]["text"]
             if not chunk:
                 continue
@@ -294,7 +300,7 @@ class LlmManager:
             yield ("thinking", piece)
 
         # Phase 2 — the answer, with its own full budget; tag every chunk "text".
-        prompt2 = self._close_thinking(prompt, "".join(thinking_parts))
+        prompt2 = self._close_thinking(prompt, "".join(thinking_parts), closed)
         for ev in self.model(prompt2, max_tokens=answer_budget,
                              stream=True, **sampling):
             chunk = ev["choices"][0]["text"]

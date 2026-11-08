@@ -12,10 +12,10 @@ class Settings:
     """Application settings loaded from environment variables."""
 
     # Models service — the standalone model server this backend calls over HTTP.
-    # MODEL_NAME is the model *id* to request (e.g. "qwen3.5-9b"), not a weights path.
+    # MODEL_NAME is the model *id* to request (e.g. "qwen3.8-27b"), not a weights path.
     # Quantization / GPU / weights are the models service's concern, not the backend's.
     models_service_url: str = os.getenv("MODELS_SERVICE_URL", "http://localhost:8001/v1")
-    model_name: str = os.getenv("MODEL_NAME", "qwen3.5-9b")
+    model_name: str = os.getenv("MODEL_NAME", "qwen3.8-27b")
     models_service_api_key: str = os.getenv("MODELS_SERVICE_API_KEY", "")
 
     # Server configuration

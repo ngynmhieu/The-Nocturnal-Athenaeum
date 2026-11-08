@@ -13,8 +13,9 @@ if not exist "models\.venv" (
 REM Activate it
 call models\.venv\Scripts\activate.bat
 
-REM Ensure dependencies are installed (self-heals an empty or partial venv)
-python -c "import uvicorn" 2>NUL
+REM Ensure dependencies are installed (self-heals an empty, partial or pre-llama.cpp
+REM venv). find_spec, not import: llama_cpp only imports after cuda_bootstrap runs.
+python -c "import importlib.util as u, sys; sys.exit(not all(u.find_spec(m) for m in ['uvicorn', 'llama_cpp', 'jinja2']))" 2>NUL
 if errorlevel 1 (
     echo Installing requirements...
     pip install -r models\requirements.txt

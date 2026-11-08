@@ -71,10 +71,12 @@ models/
             ├── router.py            #   endpoints (thin): /v1/chat/completions, /v1/models, /health
             ├── service.py           #   orchestration + OpenAI/SSE formatting
             ├── schemas.py           #   OpenAI request/response shapes
-            ├── manager.py           #   model lifecycle: load/unload/swap + generate/stream
+            ├── manager.py           #   model lifecycle: load/unload/swap + generate/stream (llama.cpp)
+            ├── processors.py        #   thinking-budget logits processor + stream stripper
+            ├── cuda_bootstrap.py    #   preloads the pip CUDA runtime on Windows
             ├── dependencies.py      #   get_llm_service / get_manager
             └── models/              #   DATA: one JSON file per LLM model
-                └── qwen3.5-9b.json
+                └── qwen3.8-27b.json
 ```
 
 A second model type later is a sibling module with the same shape, e.g.
@@ -95,16 +97,19 @@ types) moves to `app/shared/` **when that need appears** — not before.
 ## 3. Model configs (JSON data)
 
 Each model is one JSON file in `app/modules/llm/models/` — pure configuration, no
-behavior. Example `qwen3.5-9b.json`:
+behavior. Models are pre-quantized **GGUF** files run by llama.cpp; the
+quantization is chosen by picking the file. Example `qwen3.8-27b.json` (trimmed):
 
 ```json
 {
-  "id": "qwen3.5-9b",
-  "hf_repo": "Qwen/Qwen3.5-9B",
-  "quantize": "4bit",
-  "max_new_tokens": 1024,
-  "supports_thinking": true,
-  "description": "Qwen3.5 9B · 256K context · linear attention · 4-bit.",
+  "id": "qwen3.8-27b",
+  "hf_repo": "unsloth/Qwen3.8-27B-GGUF",
+  "gguf_file": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+  "n_gpu_layers": -1,
+  "n_ctx": 16384,
+  "capabilities": ["chat", "thinking"],
+  "max_new_tokens": 2048,
+  "description": "Qwen3.8 27B · 262K context · hybrid linear attention · UD-Q3_K_XL.",
   "default": true
 }
 ```
@@ -112,12 +117,16 @@ behavior. Example `qwen3.5-9b.json`:
 | Field | Meaning |
 |---|---|
 | `id` | public id clients send in `"model": "..."` |
-| `hf_repo` | HuggingFace repo to load |
-| `quantize` | `4bit` \| `8bit` \| `none` |
+| `hf_repo` | HuggingFace repo holding the GGUF files |
+| `gguf_file` | GGUF filename in that repo (this picks the quantization) |
+| `n_gpu_layers` / `n_ctx` | GPU offload (`-1` = all layers) and context window |
+| `capabilities` | `chat` / `thinking` / `tools` / `vision`; `thinking` enables the two-phase flow |
 | `max_new_tokens` | per-model default generation cap |
-| `supports_thinking` | enables the `enable_thinking` template + `<think>` stripping |
 | `description` | shown in `GET /v1/models` |
 | `default` | `true` on exactly one model → loaded on startup |
+
+The full field list (thinking budget, reasoning effort, sampling) is in
+[`modules/llm.md`](modules/llm.md).
 
 **Adding an LLM = drop in a JSON file.** No code, no registration.
 (There is no `type` field — the module *is* the type.)
@@ -127,16 +136,16 @@ behavior. Example `qwen3.5-9b.json`:
 ## 4. Inside the `llm` module
 
 - **`manager.py`** — owns the model lifecycle: reads `models/*.json`, holds the
-  one resident model (16 GB fits one), loads/unloads/swaps on demand, and runs
-  inference (`generate` / `stream`). This is where the transformers machinery
-  lives: quantized load with multimodal→causal fallback, chat template +
-  `enable_thinking`, token streaming, `<think>` stripping. One copy, driven by
-  each model's JSON.
+  one resident model, loads/unloads/swaps on demand, and runs inference
+  (`generate` / `stream`). This is where the llama.cpp machinery lives: GGUF load
+  via `Llama.from_pretrained`, the GGUF-embedded chat template rendered with
+  `jinja2` (`enable_thinking`, `reasoning_effort`), native streaming, and the
+  two-phase thinking budget. One copy, driven by each model's JSON.
 - **`service.py`** — `LlmService`: turns an OpenAI request into a call on the
   manager and builds the OpenAI response object / SSE frames. Keeps the router thin.
 - **`schemas.py`** — `ChatCompletionRequest` / `ChatMessage` (OpenAI shape).
-  Model-specific knobs (e.g. `enable_thinking`) aren't fields; clients pass them
-  via `extra_body`, captured as passthrough options handed to the manager.
+  Model-specific knobs (`enable_thinking`, `reasoning_effort`) are declared,
+  validated fields; OpenAI SDK clients send them via `extra_body`.
 - **`dependencies.py`** — FastAPI `Depends` providers (the service / manager).
 - **`router.py`** — endpoints only, each a few lines:
 
@@ -155,7 +164,7 @@ No env file. Configuration lives where it belongs:
 
 | What | Where |
 |---|---|
-| Per-model settings (repo, quantize, max_new_tokens, flags) | the model's JSON in `modules/llm/models/` |
+| Per-model settings (repo, GGUF file, context, budgets, sampling) | the model's JSON in `modules/llm/models/` |
 | Which model loads on startup | `"default": true` in that JSON |
 | Host / port | `core/config.py` defaults (overridable via `MODELS_HOST`/`MODELS_PORT`) |
 
@@ -174,7 +183,8 @@ run_models.bat
 
 It creates `models/.venv` on first run, installs `requirements.txt`, and starts
 the server via `python -m models.run_models` (uvicorn on port 8001). First start
-downloads the default model's weights (cached afterward). Host/port come from
+downloads the default model's GGUF (~12.5 GB for Qwen3.8-27B, cached in the
+HuggingFace cache afterward) and JIT-compiles the CUDA kernels once. Host/port come from
 `core/config.py` (defaults `0.0.0.0:8001`).
 
 ---
@@ -183,18 +193,18 @@ downloads the default model's weights (cached afterward). Host/port come from
 
 ### `GET /health`
 ```json
-{ "status": "ok", "loaded_model": "qwen3.5-9b" }
+{ "status": "ok", "loaded_model": "qwen3.8-27b" }
 ```
 
 ### `GET /v1/models`
 ```json
-{ "object": "list", "data": [ { "id": "qwen3.5-9b", "object": "model", "owned_by": "local", "description": "…" } ] }
+{ "object": "list", "data": [ { "id": "qwen3.8-27b", "object": "model", "owned_by": "local", "description": "…", "loaded": true, "capabilities": ["chat", "thinking"] } ] }
 ```
 
 ### `POST /v1/chat/completions`
 ```json
 {
-  "model": "qwen3.5-9b",
+  "model": "qwen3.8-27b",
   "messages": [{ "role": "user", "content": "Hello" }],
   "max_tokens": 512,
   "stream": true,
@@ -216,7 +226,7 @@ OpenAI-compatible, so the backend uses the standard `openai` SDK — its
 from openai import OpenAI
 client = OpenAI(base_url="http://localhost:8001/v1", api_key="not-needed")
 stream = client.chat.completions.create(
-    model="qwen3.5-9b",
+    model="qwen3.8-27b",
     messages=[{"role": "user", "content": prompt}],
     stream=True,
 )
@@ -232,8 +242,8 @@ for event in stream:
 
 - **Two processes** to run instead of one.
 - **Sync generation** runs in FastAPI's threadpool — fine for single-user. For
-  throughput, `manager.py` can be swapped to a `vllm`/`sglang` backend with no
-  change to the router/service or the JSON configs.
+  throughput, `manager.py` could move to llama.cpp's own server or `vllm` with no
+  change to the router/service.
 - **Model swap latency** — switching models unloads/reloads weights.
 - **A second model type** = a new sibling module; shared cross-module concerns
   (e.g. GPU residency across types) get extracted to `app/shared/` only then.
