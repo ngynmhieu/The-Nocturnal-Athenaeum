@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d %~dp0
+cd /d %~dp0..
 
 REM Schema -> migration -> apply, in one step.
 REM Detects changed schema/<module>/*.sql fragments, generates per-table

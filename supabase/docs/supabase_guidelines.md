@@ -118,8 +118,8 @@ python supabase/scripts/sync_schema.py --no-push   # generate + review, never pu
 python supabase/scripts/sync_schema.py --yes       # skip the prompt; push if pushable
 ```
 
-From the repo root, `run_migration.bat` is a one-step wrapper that forwards the
-same flags (e.g. `run_migration.bat --status`, `run_migration.bat --yes`).
+`supabase/run_migration.bat` is a one-step wrapper that forwards the same flags
+(e.g. `supabaseun_migration.bat --status`, `supabaseun_migration.bat --yes`).
 
 It compares every fragment to its snapshot in `schema/.snapshots/` and acts **per
 table** — so a change to one table can never affect another:

@@ -20,7 +20,7 @@ services:
     environment:
       MODELS_SERVICE_URL: http://models:8001/v1
       # backend/.env.backend uses 127.0.0.1 (correct for a bare host process
-      # via run_backend.bat — see the comment there). The container needs
+      # via backend/run_backend.bat — see the comment there). The container needs
       # host.docker.internal instead to reach the host-run Supabase stack.
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@host.docker.internal:54322/postgres
       SUPABASE_URL: http://host.docker.internal:54321
@@ -35,7 +35,7 @@ services:
       dockerfile: models/Dockerfile
     ports:
       # Bound to loopback only: reachable from a host-run backend
-      # (run_backend.bat), never from the LAN. This service has no auth.
+      # (backend/run_backend.bat), never from the LAN. This service has no auth.
       - "127.0.0.1:8001:8001"
     volumes:
       - ${USERPROFILE}/.cache/huggingface:/cache/huggingface

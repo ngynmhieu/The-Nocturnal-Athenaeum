@@ -54,12 +54,12 @@ service, the backend restarts in seconds while the model stays warm here.
 
 ## 2. Layout
 
-Started the same way as the backend: a `run_models.py` launcher invoked by a
-root `run_models.bat` (alongside `run_backend.bat` / `run_frontend.bat`).
+Started the same way as the backend: a `run_models.py` launcher invoked by
+`models/run_models.bat` (alongside `backend/run_backend.bat` / `frontend/run_frontend.bat`; all three are started by the root `run_all.bat`).
 
 ```
 models/
-├── run_models.py                    # launcher (uvicorn) — invoked by root run_models.bat
+├── run_models.py                    # launcher (uvicorn) — invoked by run_models.bat
 ├── requirements.txt
 ├── docs/models_guideline.md
 └── app/
@@ -166,7 +166,7 @@ No env file. Configuration lives where it belongs:
 
 ## 6. Running it
 
-From the repo root, like the backend:
+From the `models` folder, like the backend (or run `run_all.bat` from the repo root):
 
 ```bat
 run_models.bat
