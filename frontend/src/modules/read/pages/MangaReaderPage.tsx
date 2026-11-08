@@ -5,7 +5,8 @@ import { LoadingDialog } from "@/shared/ui";
 import owlMascot from "@/shared/assets/owl_reading_book_with_glasses.png";
 import { useSignedUrls, PoolPickerModal } from "../shared";
 import { useSectionPages, useMangaDetail, sectionLabel } from "../entities";
-import { useDeletePage } from "../features";
+import { useDeletePage, useReorderPages, useReaderWidth, READER_WIDTHS } from "../features";
+import type { Page } from "../entities";
 import { Reader, PullPagesModal } from "../widgets";
 
 /** /lector/manga/:mangaId/read/:sectionId — the reading view. View mode just
@@ -13,8 +14,8 @@ import { Reader, PullPagesModal } from "../widgets";
  *  pull — a volume/chapter link's pages land here in the site's own order, see
  *  `PullPagesModal`) and "Add pages" (pick from the pool, for images collected
  *  earlier — see `PoolPickerModal`), plus per-page controls in the reader:
- *  remove a page, or add pages in front of / behind it (the pool picker again,
- *  with an insert position). */
+ *  remove a page, move it up / down one place, or add pages in front of /
+ *  behind it (the pool picker again, with an insert position). */
 export function MangaReaderPage() {
   const { mangaId, sectionId } = useParams();
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ export function MangaReaderPage() {
   const { pages, error, refresh } = useSectionPages(sectionId);
   const { deletePage, deletingId } = useDeletePage();
   const [pageError, setPageError] = useState<string | null>(null);
+  const { width: readerWidth, setWidth: setReaderWidth } = useReaderWidth();
 
   const removePage = async (page: { id: string; position: number }) => {
     setPageError(null);
@@ -41,6 +43,27 @@ export function MangaReaderPage() {
       setPageError(`Couldn't remove page ${page.position + 1} — try again.`);
     }
     refresh();
+  };
+  // Move = swap with the neighbour, saved as a whole new order (the backend
+  // rewrites every position in one transaction), then refetch.
+  const { reorder } = useReorderPages(sectionId ?? "");
+  const [movingId, setMovingId] = useState<string | null>(null);
+  const movePage = async (page: Page, direction: -1 | 1) => {
+    if (!pages || movingId) return;
+    const from = pages.findIndex((p) => p.id === page.id);
+    const to = from + direction;
+    if (from < 0 || to < 0 || to >= pages.length) return;
+    const ids = pages.map((p) => p.id);
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    setPageError(null);
+    setMovingId(page.id);
+    try {
+      await reorder(ids);
+    } catch {
+      setPageError(`Couldn't move page ${page.position + 1} — try again.`);
+    }
+    await refresh();
+    setMovingId(null);
   };
   const urls = useSignedUrls((pages ?? []).map((p) => p.storagePath));
   // Non-blocking — the reader itself doesn't need the manga fetched, only its
@@ -85,6 +108,28 @@ export function MangaReaderPage() {
                 </p>
                 {pageError && <p className="text-sm text-[var(--owl-brown-deep)]">{pageError}</p>}
               </div>
+              {/* Page-strip width — remembered per browser; phones always read full width. */}
+              <div
+                role="radiogroup"
+                aria-label="Reader width"
+                className="hidden md:flex items-center rounded-md border border-[var(--owl-border)] p-0.5"
+              >
+                {READER_WIDTHS.map((option) => (
+                  <button
+                    key={option.value}
+                    role="radio"
+                    aria-checked={readerWidth === option.value}
+                    onClick={() => setReaderWidth(option.value)}
+                    className={`rounded px-2.5 py-1 text-sm transition-colors cursor-pointer ${
+                      readerWidth === option.value
+                        ? "bg-[var(--owl-brown-mid)]/15 text-[var(--owl-brown-deep)]"
+                        : "text-[var(--owl-brown-muted)] hover:bg-[var(--owl-brown-mid)]/10 hover:text-[var(--owl-brown-deep)]"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
               {editing && (
                 <button
                   onClick={() => setPullOpen(true)}
@@ -127,10 +172,12 @@ export function MangaReaderPage() {
           <Reader
             pages={pages}
             urls={urls}
+            width={readerWidth}
             onHeaderHiddenChange={setHeaderHidden}
             editing={editing}
-            removingId={deletingId}
+            busyPageId={deletingId ?? movingId}
             onRemovePage={removePage}
+            onMovePage={movePage}
             onAddPagesAt={setPoolAt}
           />
         )}

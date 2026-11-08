@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
-import { ArrowDownToLine, ArrowUpToLine, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Trash2 } from "lucide-react";
 import { Dropdown, DropdownItem } from "@/shared/ui";
 import type { Page } from "../../../entities";
 
-/** The dropdown's size (Dropdown is w-48; three items ≈ 7.5rem tall) — used to
- *  keep the menu on screen when it opens near an edge. */
+/** The dropdown's size at its tallest (Dropdown is w-48; five items ≈ 12.75rem
+ *  tall) — used to keep the menu on screen when it opens near an edge. */
 const MENU_WIDTH_PX = 192;
-const MENU_HEIGHT_PX = 124;
+const MENU_HEIGHT_PX = 204;
 const EDGE_GAP_PX = 8;
 
 interface PageEditOverlayProps {
@@ -16,16 +16,20 @@ interface PageEditOverlayProps {
   /** This page's menu is the open one (only one at a time, owned by `Reader`). */
   menuOpen: boolean;
   onMenuOpenChange: (open: boolean) => void;
-  /** This page is being removed right now. */
-  removing: boolean;
+  /** This page is being removed or moved right now. */
+  busy: boolean;
   onRemove: (page: Page) => void;
+  /** Swap this page with the one above (-1) or below (1). Omitted at the
+   *  matching end of the section, where there's nowhere to move. */
+  onMoveUp?: (page: Page) => void;
+  onMoveDown?: (page: Page) => void;
   /** Open the add flow so new pages land at `position` (the pages there move down). */
   onAddAt: (position: number) => void;
 }
 
 /** Edit-mode layer over one page: click anywhere on it and a menu opens right
- *  there — add pages in front of / behind it, or remove it (asks twice, since
- *  removing deletes the image for good).
+ *  there — move it up / down one place, add pages in front of / behind it, or
+ *  remove it (asks twice, since removing deletes the image for good).
  *
  *  The menu is portalled to <body> with fixed positioning: the page box has
  *  `content-visibility: auto`, whose paint containment would clip a menu
@@ -34,8 +38,10 @@ export function PageEditOverlay({
   page,
   menuOpen,
   onMenuOpenChange,
-  removing,
+  busy,
   onRemove,
+  onMoveUp,
+  onMoveDown,
   onAddAt,
 }: PageEditOverlayProps) {
   const [menuArmed, setMenuArmed] = useState(false);
@@ -83,7 +89,7 @@ export function PageEditOverlay({
         onClick={openAt}
         className={`absolute inset-0 cursor-pointer transition-colors ${
           menuOpen ? "bg-[var(--owl-brown-deep)]/15" : "hover:bg-[var(--owl-brown-deep)]/5"
-        } ${removing ? "animate-pulse bg-[var(--owl-brown-deep)]/25" : ""}`}
+        } ${busy ? "animate-pulse bg-[var(--owl-brown-deep)]/25" : ""}`}
       />
 
       <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-[var(--background)]/85 px-2 py-0.5 text-xs text-[var(--owl-brown-deep)]">
@@ -97,6 +103,28 @@ export function PageEditOverlay({
           // the (portalled) menu as inside this page.
           <div data-page-edit={page.id} className="fixed z-50" style={{ left: menuAt.left, top: menuAt.top }}>
             <Dropdown>
+              {onMoveUp && (
+                <DropdownItem
+                  icon={<ArrowUp size={14} aria-hidden="true" />}
+                  onClick={() => {
+                    closeMenu();
+                    onMoveUp(page);
+                  }}
+                >
+                  Move up one page
+                </DropdownItem>
+              )}
+              {onMoveDown && (
+                <DropdownItem
+                  icon={<ArrowDown size={14} aria-hidden="true" />}
+                  onClick={() => {
+                    closeMenu();
+                    onMoveDown(page);
+                  }}
+                >
+                  Move down one page
+                </DropdownItem>
+              )}
               <DropdownItem
                 icon={<ArrowUpToLine size={14} aria-hidden="true" />}
                 onClick={() => {
