@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from .dependencies import get_read_service, get_scrape_service
+from .extractors import ExtractorError
 from .schemas import (
     CoverFromLibraryRequest,
     ImportRequest,
@@ -24,6 +25,8 @@ from .schemas import (
     SectionCreate,
     SectionSummary,
     SectionUpdate,
+    SeriesRequest,
+    SeriesResult,
 )
 from .services import ReadService, ScrapeService
 
@@ -156,7 +159,18 @@ async def reorder_pages(
 
 @router.post("/scrape", response_model=ScrapeResult)
 async def scrape(body: ScrapeRequest, service: ScrapeService = Depends(get_scrape_service)):
-    return await service.scrape(body.url)
+    try:
+        return await service.scrape(body.url)
+    except ExtractorError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/scrape/series", response_model=SeriesResult)
+async def list_series(body: SeriesRequest, service: ScrapeService = Depends(get_scrape_service)):
+    try:
+        return await service.list_series(body.url, body.language)
+    except ExtractorError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.post("/sections/{section_id}/import", response_model=list[PageInfo])
@@ -165,7 +179,7 @@ async def import_into(
     body: ImportRequest,
     service: ScrapeService = Depends(get_scrape_service),
 ):
-    pages = await service.import_into(section_id, body.urls, body.referer)
+    pages = await service.import_into(section_id, body.urls, body.referer, body.sizes)
     if pages is None:
         raise HTTPException(status_code=404, detail="Section not found")
     return pages

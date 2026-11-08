@@ -54,6 +54,25 @@ export interface ScrapeCandidate {
   height: number | null;
 }
 
+export interface ScrapeResult {
+  candidates: ScrapeCandidate[];
+  /** Set when a per-site extractor knows what its image CDN requires as Referer. */
+  referer: string | null;
+}
+
+/** One volume/chapter listed on a series page — `url` goes back into `scrape`. */
+export interface SeriesEntry {
+  kind: "volume" | "chapter";
+  number: number | null;
+  title: string | null;
+  url: string;
+}
+
+export interface PageSize {
+  width: number | null;
+  height: number | null;
+}
+
 export interface SectionCreateInput {
   kind: "volume" | "chapter";
   number?: number | null;
@@ -171,9 +190,23 @@ export const readApi = {
 
   // --- scrape + import ---
   scrape: (url: string) =>
-    request<{ candidates: ScrapeCandidate[] }>("/read/scrape", {
+    request<ScrapeResult>("/read/scrape", {
       method: "POST",
       body: JSON.stringify({ url }),
+    }),
+
+  scrapeSeries: (url: string) =>
+    request<{ entries: SeriesEntry[] }>("/read/scrape/series", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+
+  /** Direct pull: the backend downloads `urls` and appends them to the section in
+   *  exactly this order — no pool in between. `sizes` is keyed by URL. */
+  importIntoSection: (sectionId: string, urls: string[], referer?: string | null, sizes?: Record<string, PageSize>) =>
+    request<PageInfo[]>(`/read/sections/${sectionId}/import`, {
+      method: "POST",
+      body: JSON.stringify({ urls, referer: referer ?? null, sizes: sizes ?? {} }),
     }),
 
   // --- library pool ---

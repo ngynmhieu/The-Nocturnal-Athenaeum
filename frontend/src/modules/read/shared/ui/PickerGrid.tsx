@@ -29,6 +29,8 @@ interface PickerGridProps {
    *  was going — e.g. the pool grid — rather than waiting for the whole batch). */
   importStatus?: Record<string, ImportStatus>;
   itemNoun?: string;
+  /** Caption after the count — defaults to the click-to-pick instruction. */
+  hint?: string;
   onConfirm: () => void;
 }
 
@@ -47,6 +49,7 @@ export function PickerGrid({
   confirmLabel,
   importStatus,
   itemNoun = "image",
+  hint = "click to pick, in reading order.",
   onConfirm,
 }: PickerGridProps) {
   const visibleItems = items.filter((item) => importStatus?.[item.key] !== "done");
@@ -57,7 +60,7 @@ export function PickerGrid({
       <div className="flex items-center gap-3">
         <p className="text-xs text-[var(--owl-brown-muted)]">
           {visibleItems.length} {itemNoun}
-          {visibleItems.length > 1 ? "s" : ""} — click to pick, in reading order.
+          {visibleItems.length > 1 ? "s" : ""} — {hint}
         </p>
         {!singleSelect && (
           <button onClick={onSelectAll} className="text-xs text-[var(--owl-orange-deep)] hover:underline cursor-pointer">

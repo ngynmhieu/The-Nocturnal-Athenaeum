@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
-import { ArrowLeft, Pencil, Check, Images } from "lucide-react";
+import { ArrowLeft, Pencil, Check, Images, Link } from "lucide-react";
 import { LoadingDialog } from "@/shared/ui";
 import owlMascot from "@/shared/assets/owl_reading_book_with_glasses.png";
 import { useSignedUrls, PoolPickerModal } from "../shared";
 import { useSectionPages, useMangaDetail, sectionLabel } from "../entities";
-import { Reader } from "../widgets";
+import { Reader, PullPagesModal } from "../widgets";
 
 /** /lector/manga/:mangaId/read/:sectionId — the reading view. View mode just
- *  reads; edit mode reveals an "Add pages" button that opens the pool picker —
- *  the only way to add pages to a section. Collecting new images (scrape or
- *  upload) always lands in the pool first; inserting into a section is a
- *  separate, later pick from there (see `PoolPickerModal`). */
+ *  reads; edit mode reveals the two ways to add pages: "Pull from link" (direct
+ *  pull — a volume/chapter link's pages land here in the site's own order, see
+ *  `PullPagesModal`) and "Add pages" (pick from the pool, for images collected
+ *  earlier — see `PoolPickerModal`). */
 export function MangaReaderPage() {
   const { mangaId, sectionId } = useParams();
   const navigate = useNavigate();
@@ -20,6 +20,7 @@ export function MangaReaderPage() {
   // empty section land straight in edit mode instead of a second click.
   const [editing, setEditing] = useState(() => searchParams.get("edit") === "1");
   const [poolOpen, setPoolOpen] = useState(false);
+  const [pullOpen, setPullOpen] = useState(false);
   const { pages, error, refresh } = useSectionPages(sectionId);
   const urls = useSignedUrls((pages ?? []).map((p) => p.storagePath));
   // Non-blocking — the reader itself doesn't need the manga fetched, only its
@@ -55,6 +56,15 @@ export function MangaReaderPage() {
           </div>
           {editing && (
             <button
+              onClick={() => setPullOpen(true)}
+              className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer"
+            >
+              <Link size={15} aria-hidden="true" />
+              Pull from link
+            </button>
+          )}
+          {editing && (
+            <button
               onClick={() => setPoolOpen(true)}
               className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer"
             >
@@ -84,6 +94,18 @@ export function MangaReaderPage() {
           <Reader pages={pages} urls={urls} />
         )}
       </div>
+
+      {sectionId && (
+        <PullPagesModal
+          open={pullOpen}
+          onClose={() => setPullOpen(false)}
+          sectionId={sectionId}
+          onPulled={() => {
+            setPullOpen(false);
+            refresh();
+          }}
+        />
+      )}
 
       {sectionId && (
         <PoolPickerModal

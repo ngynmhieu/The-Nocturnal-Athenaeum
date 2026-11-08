@@ -34,11 +34,12 @@ const COLLECT_MODE_TABS: { value: CollectMode; label: string; icon: typeof Globe
   { value: "upload", label: "Upload", icon: Upload },
 ];
 
-/** The single way images reach a section or a cover: collect into the pool
+/** How loose images reach a section or a cover: collect into the pool
  *  (scrape or upload — identical to LibraryPage's "Collect images"), then pick
- *  from that same grid. Merging the collect step into this "window" means
- *  pages and covers always pass through the pool, rather than each having its
- *  own separate straight-to-target upload/scrape path to keep in sync. */
+ *  from that same grid. Merging the collect step into this "window" keeps one
+ *  collect path for pages and covers alike. (The exception is a whole volume/
+ *  chapter from a supported site: the direct pull — `PullPagesModal` /
+ *  `PullSeriesModal` — skips the pool and keeps the site's page order.) */
 export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps) {
   const [mode, setMode] = useState<CollectMode>("scrape");
   const { assets, loading, appendAsset, removeAssets } = usePoolAssets();

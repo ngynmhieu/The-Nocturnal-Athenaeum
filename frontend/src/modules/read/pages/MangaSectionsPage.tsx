@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
-import { ArrowLeft, Pencil, Check } from "lucide-react";
+import { ArrowLeft, Pencil, Check, Link } from "lucide-react";
 import { LoadingDialog } from "@/shared/ui";
 import { useMangaDetail, type Section, type SectionKind } from "../entities";
 import { useCreateSection, useDeleteSection } from "../features";
-import { SectionTabs, SectionGrid } from "../widgets";
+import { SectionTabs, SectionGrid, PullSeriesModal } from "../widgets";
 
 /** /lector/manga/:mangaId — one series: Volumes/Chapters tabs, create/delete
  *  sections, and set a section's cover. Adding pages happens on the reader
  *  itself (its own edit mode) — this page only manages the sections list.
  *  Same view/edit split as the collection: view is read-only, edit reveals the
- *  add-section tile and per-card hover actions. */
+ *  add-section tile, per-card hover actions, and (on Volumes) "Pull series" —
+ *  create + fill every volume from a series link (see `PullSeriesModal`). */
 export function MangaSectionsPage() {
   const { mangaId } = useParams();
   const navigate = useNavigate();
@@ -19,6 +20,7 @@ export function MangaSectionsPage() {
 
   const { detail, notFound, refresh } = useMangaDetail(mangaId);
   const [editing, setEditing] = useState(false);
+  const [seriesOpen, setSeriesOpen] = useState(false);
 
   const { createSection, creating } = useCreateSection();
   const { deleteSection: deleteSectionApi } = useDeleteSection();
@@ -61,6 +63,15 @@ export function MangaSectionsPage() {
               <p className="text-sm text-[var(--owl-brown-muted)] truncate">{detail.description}</p>
             )}
           </div>
+          {editing && tab === "volume" && (
+            <button
+              onClick={() => setSeriesOpen(true)}
+              className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer"
+            >
+              <Link size={15} aria-hidden="true" />
+              Pull series
+            </button>
+          )}
           <button
             onClick={() => setEditing((e) => !e)}
             className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer"
@@ -86,6 +97,14 @@ export function MangaSectionsPage() {
           creating={creating}
         />
       </div>
+
+      <PullSeriesModal
+        open={seriesOpen}
+        onClose={() => setSeriesOpen(false)}
+        mangaId={detail.id}
+        existingNumbers={detail.sections.filter((s) => s.kind === "volume").map((s) => s.number)}
+        onPulled={refresh}
+      />
     </div>
   );
 }

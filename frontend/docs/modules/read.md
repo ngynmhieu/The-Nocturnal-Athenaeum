@@ -39,6 +39,7 @@ frontend/src/
         MangaGrid/                   ← library grid (+ MangaCard)
         SectionTabs.tsx              ← Volumes | Chapters switch
         SectionGrid/                 ← a tab's sections (+ SectionCard)
+        PullSeriesModal.tsx          ← series link → tick volumes → create + direct-pull each
         UploadTray/                  ← local-file staging with drag-reorder (+ components)
         ScrapePicker/                ← paste URL → pick + order scraped images (+ components)
         LibraryHeader.tsx            ← pool page header: back link + Edit/Done toggle
@@ -46,6 +47,7 @@ frontend/src/
         LibraryStorage.tsx           ← pool page: selection toolbar + PoolGrid + lightbox
         PoolGrid/                    ← the pool grid itself: select + discard (+ components)
         Reader/                      ← virtualized page viewer + controls (+ components)
+        PullPagesModal.tsx           ← (MangaReader/) volume/chapter link → direct pull into this section
       features/                      ← grouped by the page each fulfills an action for
         manga-collection/
           create-manga/              ← create a series
@@ -54,9 +56,11 @@ frontend/src/
           create-section/            ← add a volume/chapter
           delete-section/            ← remove a volume/chapter
           set-section-cover/         ← pick a library asset as a section's cover
+          pull-series/               ← series link → volumes; create + pull each, one at a time
         manga-reader/
           insert-from-library/       ← selected library assets (ordered) → POST /read/sections/:id/pages/from-library
           reorder-pages/             ← drag-reorder → PATCH …/pages/order
+          pull-pages/                ← scraped candidates (site order) → POST /read/sections/:id/import
         library/
           collect-to-library/        ← scraped/uploaded images → POST /read/library/import or /read/library
           discard-from-library/      ← remove a library asset (row + Storage file)
@@ -90,6 +94,25 @@ the **display** name `/lector/*` (user-facing), while the code lives in `modules
 A `MangaCollectionProvider` (the manga collection, mirroring `ConversationsProvider`) wraps
 these so the grid and detail page share one source of truth. One new sidebar nav item,
 labelled **"Lector"**, points at `/lector` (added in `app/layouts/Sidebar/navItems.ts`).
+
+## Direct pull — a link straight into a volume/chapter
+
+The fast path for a series hosted on a supported reader site (see
+`backend/docs/modules/read.md` → `extractors/`). No pool, and no picking order by
+hand: pages land in **the site's own order**.
+
+- **One volume/chapter** — reader edit mode → **Pull from link** (`PullPagesModal`):
+  paste a volume/chapter link → `scrape-pages` (`POST /read/scrape`) → "Found N
+  pages" → **Pull** → `pull-pages` sends every candidate, in site order, to
+  `POST /read/sections/{id}/import` with the extractor's `referer` and each page's
+  size. Reviewing is optional and can only *skip* pages (everything starts
+  selected), never reorder them; previews may not load for hotlink-protected
+  sites, but the backend download still works.
+- **A whole series** — sections page, Volumes tab, edit mode → **Pull series**
+  (`PullSeriesModal`): paste the series link → `POST /read/scrape/series` lists its
+  volumes; volumes this manga already has start unticked → **Pull N volumes** →
+  `pull-series` goes one volume at a time: scrape → create the section → import,
+  showing per-volume status. A failed volume is marked and the rest continue.
 
 ## The two upload flows
 

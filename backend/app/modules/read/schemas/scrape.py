@@ -3,6 +3,8 @@
 Deliberately two requests (scrape, then import) so the user picks between them —
 see `ScrapeService` in `backend/docs/modules/read.md`.
 """
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -13,14 +15,28 @@ class ScrapeRequest(BaseModel):
     url: str = Field(..., min_length=1)
 
 
+class SeriesRequest(BaseModel):
+    """Body for `POST /read/scrape/series` — a series page on a supported site."""
+    url: str = Field(..., min_length=1)
+    language: str = "en"
+
+
+class PageSize(BaseModel):
+    width: int | None = None
+    height: int | None = None
+
+
 class ImportRequest(BaseModel):
     """Body for `POST /read/sections/{id}/import` — the chosen, ordered URLs.
 
-    `referer` should be the page URL originally scraped (from `ScrapeRequest.url`) —
-    some sites hotlink-protect images on it, so the backend's download needs it too.
+    `referer` should be `ScrapeResult.referer` (falling back to the page URL
+    originally scraped) — some sites hotlink-protect images on it, so the backend's
+    download needs it too. `sizes` carries each URL's known dimensions (keyed by
+    URL) so the reader can reserve page boxes without measuring.
     """
     urls: list[str] = Field(..., min_length=1)
     referer: str | None = None
+    sizes: dict[str, PageSize] = Field(default_factory=dict)
 
 
 class LibraryImportRequest(BaseModel):
@@ -42,5 +58,22 @@ class ScrapeCandidate(BaseModel):
 
 
 class ScrapeResult(BaseModel):
-    """Body of `POST /read/scrape`'s response — no persistence yet."""
+    """Body of `POST /read/scrape`'s response — no persistence yet. `referer` is set
+    when a per-site extractor knows what its image CDN requires."""
     candidates: list[ScrapeCandidate]
+    referer: str | None = None
+
+
+class SeriesEntryInfo(BaseModel):
+    """One volume/chapter of a series — `url` goes back into `POST /read/scrape`."""
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: Literal["volume", "chapter"]
+    number: float | None = None
+    title: str | None = None
+    url: str
+
+
+class SeriesResult(BaseModel):
+    """Body of `POST /read/scrape/series`'s response, in reading order."""
+    entries: list[SeriesEntryInfo]

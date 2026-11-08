@@ -1,3 +1,4 @@
+import type { PageSize, ScrapeCandidate } from "./api/readApi";
 /** Read a local image file's intrinsic pixel dimensions client-side, so page rows
  *  carry width/height and the reader can reserve aspect-ratio boxes (no layout shift). */
 export async function readImageSize(file: Blob): Promise<{ width: number; height: number } | null> {
@@ -17,4 +18,10 @@ export function fileExtension(file: File): string {
   if (fromName) return fromName.toLowerCase();
   const fromType = file.type.split("/")[1];
   return fromType ? `.${fromType}` : ".jpg";
+}
+
+/** Scraped candidates' known dimensions, keyed by URL — what direct imports send
+ *  so the reader can reserve each page's box without measuring it. */
+export function sizesByUrl(candidates: ScrapeCandidate[]): Record<string, PageSize> {
+  return Object.fromEntries(candidates.map((c) => [c.url, { width: c.width, height: c.height }]));
 }

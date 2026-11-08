@@ -5,7 +5,8 @@ import { readApi, type ScrapeCandidate } from "../../../shared";
  *  user to pick from. No persistence — import is a separate, second action. */
 export function useScrapePages() {
   const [candidates, setCandidates] = useState<ScrapeCandidate[]>([]);
-  /** The page URL the candidates came from — imports send it as the Referer. */
+  /** What imports send as the Referer — the extractor's required one when it
+   *  names one, otherwise the page URL the candidates came from. */
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [scraping, setScraping] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +19,7 @@ export function useScrapePages() {
     try {
       const result = await readApi.scrape(trimmed);
       setCandidates(result.candidates);
-      setSourceUrl(trimmed);
+      setSourceUrl(result.referer ?? trimmed);
     } catch (err) {
       setError((err as Error).message);
       setCandidates([]);

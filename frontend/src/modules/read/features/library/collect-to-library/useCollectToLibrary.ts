@@ -26,8 +26,9 @@ function resolveStuckToError(status: Record<string, ImportStatus>): Record<strin
  *  land in `{user_id}/_pool/` with no manga attached: scrape candidates go
  *  through the backend (server-side download), local files go direct-to-storage
  *  then get recorded. Inserting them into a section is a separate, later
- *  action (`insert-from-library`) — the *only* way pages reach a section, so
- *  every "add pages" flow collects here first (see `PoolPickerModal`).
+ *  action (`insert-from-library`, see `PoolPickerModal`). The other way pages
+ *  reach a section skips the pool entirely: a direct pull from a link
+ *  (`pull-pages` / `pull-series`).
  *
  *  Both endpoints stream one result per item as it finishes (not batched to
  *  the end) — `onItem` fires per item so the caller can reveal it in the pool
