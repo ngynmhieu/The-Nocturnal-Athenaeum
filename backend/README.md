@@ -13,11 +13,13 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Or simply run the provided batch script from the project root:
+Or simply run the provided batch script from the `backend` folder:
 
 ```bash
 run_backend.bat
 ```
+
+To start all modules at once, run `run_all.bat` from the project root.
 
 This will automatically create the virtual environment and install dependencies on first run.
 

@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d %~dp0
+cd /d %~dp0..
 
 REM Create the venv if missing
 if not exist "models\.venv" (

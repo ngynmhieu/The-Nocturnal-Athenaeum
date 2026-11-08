@@ -41,7 +41,7 @@ The project is split into four top-level modules. Each is independently runnable
 
 ### `frontend/` — the user interface
 
-React + TypeScript + Vite + Tailwind, launched via `run_frontend.bat`.
+React + TypeScript + Vite + Tailwind, launched via `frontend/run_frontend.bat` (or `run_all.bat`).
 
 A **modular monolith** using **Feature-Sliced Design** inside each module: pages compose, features hold user actions, entities hold business concepts, and `shared/` holds cross-cutting primitives that must never depend on business modules. Cross-module imports go through a module's public API (`index.ts`) — never deep into its folders.
 
@@ -49,7 +49,7 @@ Styling is strict: all colors are CSS variables defined in `index.css`, and sizi
 
 ### `backend/` — the application API
 
-FastAPI **modular monolith**, launched via `run_backend.bat`.
+FastAPI **modular monolith**, launched via `backend/run_backend.bat` (or `run_all.bat`).
 
 Organized feature-first to mirror the frontend. Each feature under `app/modules/` owns its full stack in one flat folder — `router.py` (thin HTTP layer), `service.py` (business logic), `schemas.py` (API shapes), `models.py` (persistence shapes), `dependencies.py` (the module's public surface). `app/core/` holds infrastructure (config, database, security); `app/shared/` holds reusable business-agnostic code.
 
@@ -57,7 +57,7 @@ The backend holds no model in-process — it calls the models service over HTTP.
 
 ### `models/` — the model-serving service
 
-A **standalone service** that stores, loads, and runs models, exposing an **OpenAI-compatible HTTP API**. Launched via `run_models.bat`.
+A **standalone service** that stores, loads, and runs models, exposing an **OpenAI-compatible HTTP API**. Launched via `models/run_models.bat` (or `run_all.bat`).
 
 It exists as a separate process because a model and an application have opposite lifecycles: loading weights takes minutes, restarting the backend takes seconds. Keeping them apart means the backend can restart freely while the model stays warm.
 

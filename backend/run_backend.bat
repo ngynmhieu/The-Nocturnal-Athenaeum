@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d %~dp0
+cd /d %~dp0..
 
 REM Check if venv exists in backend folder
 if not exist "backend\.venv" (
