@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ImageOff, Check, Loader2, AlertTriangle } from "lucide-react";
+import { ImageOff, Check, Loader2, AlertTriangle, X } from "lucide-react";
 import type { ImportStatus } from "../importStatus";
 
 interface PickerCardProps {
@@ -13,9 +13,15 @@ interface PickerCardProps {
    *  spinner overlay, then swaps the pick badge for a checkmark once done. */
   status?: ImportStatus;
   onToggle: (event: React.MouseEvent) => void;
+  /** Shows an ✕ in the corner (click once to arm, again to remove). Omit for
+   *  grids whose items can't be removed. */
+  onRemove?: () => void;
+  /** This card is being removed right now. */
+  removing?: boolean;
 }
 
-export function PickerCard({ previewUrl, label, order, status, onToggle }: PickerCardProps) {
+export function PickerCard({ previewUrl, label, order, status, onToggle, onRemove, removing = false }: PickerCardProps) {
+  const [armed, setArmed] = useState(false);
   // Many sites hotlink-protect images, so a scraped preview may not load in the
   // browser even though the backend can import it — show a neutral tile then.
   const [broken, setBroken] = useState(false);
@@ -23,10 +29,12 @@ export function PickerCard({ previewUrl, label, order, status, onToggle }: Picke
   const title = label ?? previewUrl;
 
   return (
+    // The ✕ is a sibling of the pick button, not inside it (no nested buttons).
+    <div className={`relative ${removing ? "opacity-50" : ""}`}>
     <button
       onClick={onToggle}
       disabled={status !== undefined}
-      className={`relative aspect-[3/4] rounded-md overflow-hidden border-2 transition-colors cursor-pointer disabled:cursor-default ${
+      className={`relative w-full aspect-[3/4] rounded-md overflow-hidden border-2 transition-colors cursor-pointer disabled:cursor-default ${
         picked ? "border-[var(--owl-orange)]" : "border-[var(--owl-border)] hover:border-[var(--owl-tan-mid)]"
       }`}
       title={title}
@@ -62,5 +70,31 @@ export function PickerCard({ previewUrl, label, order, status, onToggle }: Picke
         </span>
       )}
     </button>
+    {onRemove && status === undefined && (
+      <button
+        type="button"
+        aria-label={armed ? "Confirm removing this image" : "Remove this image"}
+        disabled={removing}
+        onClick={() => {
+          if (armed) {
+            setArmed(false);
+            onRemove();
+          } else {
+            setArmed(true);
+          }
+        }}
+        onMouseLeave={() => setArmed(false)}
+        onBlur={() => setArmed(false)}
+        className={`absolute right-1 top-1 flex items-center gap-1 rounded-full border border-[var(--owl-border)] shadow-sm transition-colors cursor-pointer disabled:cursor-wait ${
+          armed
+            ? "bg-[var(--owl-brown-deep)] px-2 py-0.5 text-[0.65rem] text-[var(--background)]"
+            : "bg-[var(--background)]/90 p-1 text-[var(--owl-brown)] hover:text-[var(--owl-brown-deep)]"
+        }`}
+      >
+        <X size={armed ? 11 : 13} aria-hidden="true" />
+        {armed && "Remove?"}
+      </button>
+    )}
+    </div>
   );
 }

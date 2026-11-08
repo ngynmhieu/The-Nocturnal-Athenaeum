@@ -5,6 +5,7 @@ import { usePoolAssets, type LibraryAsset, type Page } from "../../entities";
 import {
   useInsertFromLibrary,
   useCollectToLibrary,
+  useDiscardFromLibrary,
   useSetMangaCover,
   useSetSectionCover,
 } from "../../features";
@@ -47,6 +48,14 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
   const urls = useSignedUrls(assets.map((a) => a.storagePath));
   const { picked, setPicked, onItemClick: multiItemClick } = useClickSelect(assets.map((a) => a.id));
   const { importUrlsToLibrary, uploadFilesToLibrary, collecting, importStatus } = useCollectToLibrary();
+  const { discardImage, deletingIds } = useDiscardFromLibrary();
+  // Discarding removes the image for good (row + Storage file), then drops it
+  // from the grid and from the current picks.
+  const discard = (assetId: string) =>
+    discardImage(assetId, (id) => {
+      removeAssets([id]);
+      setPicked((prev) => prev.filter((key) => key !== id));
+    });
 
   // Rules of hooks: all three targets' hooks are called every render, each
   // holding a harmless id when its target kind isn't the active one — only
@@ -160,6 +169,8 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
             confirmLabel={confirmLabel}
             importStatus={target.kind === "section-pages" ? insertStatus : undefined}
             onConfirm={confirm}
+            onRemove={discard}
+            removingKeys={deletingIds}
           />
         )}
       </div>

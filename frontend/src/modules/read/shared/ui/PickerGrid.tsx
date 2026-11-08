@@ -32,6 +32,11 @@ interface PickerGridProps {
   /** Caption after the count — defaults to the click-to-pick instruction. */
   hint?: string;
   onConfirm: () => void;
+  /** Lets each item be removed via an ✕ on its card (e.g. discarding from the
+   *  pool). Omit and the grid offers no removal. */
+  onRemove?: (key: string) => void;
+  /** Keys being removed right now. */
+  removingKeys?: Set<string>;
 }
 
 /** Shared "click to pick, in order, then confirm" grid — scraped candidates and
@@ -51,6 +56,8 @@ export function PickerGrid({
   itemNoun = "image",
   hint = "click to pick, in reading order.",
   onConfirm,
+  onRemove,
+  removingKeys,
 }: PickerGridProps) {
   const visibleItems = items.filter((item) => importStatus?.[item.key] !== "done");
   if (visibleItems.length === 0) return null;
@@ -89,6 +96,8 @@ export function PickerGrid({
                 order={picked.includes(item.key) ? picked.indexOf(item.key) : null}
                 status={importStatus?.[item.key]}
                 onToggle={(event) => onItemClick(item.key, index, event)}
+                onRemove={onRemove && (() => onRemove(item.key))}
+                removing={removingKeys?.has(item.key)}
               />
             </motion.div>
           ))}
