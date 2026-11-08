@@ -1,8 +1,14 @@
 import { useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { ArrowDownToLine, ArrowUpToLine, Trash2, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, Trash2 } from "lucide-react";
 import { Dropdown, DropdownItem } from "@/shared/ui";
 import type { Page } from "../../../entities";
+
+/** The dropdown's size (Dropdown is w-48; three items ≈ 7.5rem tall) — used to
+ *  keep the menu inside the page when it opens near an edge. */
+const MENU_WIDTH_PX = 192;
+const MENU_HEIGHT_PX = 124;
+const EDGE_GAP_PX = 8;
 
 interface PageEditOverlayProps {
   page: Page;
@@ -16,10 +22,9 @@ interface PageEditOverlayProps {
   onAddAt: (position: number) => void;
 }
 
-/** Edit-mode layer over one page: an ✕ in the corner (click once to arm, again
- *  to remove) and, on clicking the page itself, a menu — remove it, or add pages
- *  in front of / behind it. Removing deletes the image for good, so both paths
- *  ask twice. */
+/** Edit-mode layer over one page: click anywhere on it and a menu opens right
+ *  there — add pages in front of / behind it, or remove it (asks twice, since
+ *  removing deletes the image for good). */
 export function PageEditOverlay({
   page,
   menuOpen,
@@ -28,13 +33,31 @@ export function PageEditOverlay({
   onRemove,
   onAddAt,
 }: PageEditOverlayProps) {
-  const [armed, setArmed] = useState(false);
   const [menuArmed, setMenuArmed] = useState(false);
+  // Where the menu opens, relative to this page's box.
+  const [menuAt, setMenuAt] = useState({ left: 0, top: 0 });
   const label = `page ${page.position + 1}`;
 
   const closeMenu = () => {
     setMenuArmed(false);
     onMenuOpenChange(false);
+  };
+
+  const openAt = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (menuOpen) {
+      closeMenu();
+      return;
+    }
+    const box = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - box.left;
+    const y = event.clientY - box.top;
+    setMenuAt({
+      // Shift left / open upward when the click is too close to the right or bottom edge.
+      left: Math.max(EDGE_GAP_PX, Math.min(x, box.width - MENU_WIDTH_PX - EDGE_GAP_PX)),
+      top: y + MENU_HEIGHT_PX + EDGE_GAP_PX > box.height ? Math.max(EDGE_GAP_PX, y - MENU_HEIGHT_PX) : y,
+    });
+    setMenuArmed(false);
+    onMenuOpenChange(true);
   };
 
   return (
@@ -45,7 +68,7 @@ export function PageEditOverlay({
       <button
         type="button"
         aria-label={`Edit ${label}`}
-        onClick={() => onMenuOpenChange(!menuOpen)}
+        onClick={openAt}
         className={`absolute inset-0 cursor-pointer transition-colors ${
           menuOpen ? "bg-[var(--owl-brown-deep)]/15" : "hover:bg-[var(--owl-brown-deep)]/5"
         } ${removing ? "animate-pulse bg-[var(--owl-brown-deep)]/25" : ""}`}
@@ -55,33 +78,10 @@ export function PageEditOverlay({
         {page.position + 1}
       </span>
 
-      <button
-        type="button"
-        aria-label={armed ? `Confirm removing ${label}` : `Remove ${label}`}
-        disabled={removing}
-        onClick={() => {
-          if (armed) {
-            setArmed(false);
-            onRemove(page);
-          } else {
-            setArmed(true);
-          }
-        }}
-        onMouseLeave={() => setArmed(false)}
-        onBlur={() => setArmed(false)}
-        className={`absolute right-2 top-2 flex items-center gap-1 rounded-full border border-[var(--owl-border)] shadow-sm transition-colors cursor-pointer disabled:cursor-wait ${
-          armed
-            ? "bg-[var(--owl-brown-deep)] px-3 py-1 text-xs text-[var(--background)]"
-            : "bg-[var(--background)]/90 p-1.5 text-[var(--owl-brown)] hover:text-[var(--owl-brown-deep)]"
-        }`}
-      >
-        <X size={armed ? 13 : 16} aria-hidden="true" />
-        {armed && "Remove?"}
-      </button>
-
       <AnimatePresence>
         {menuOpen && (
-            <Dropdown position="left-1/2 top-1/3 -translate-x-1/2">
+          <div className="absolute z-50" style={{ left: menuAt.left, top: menuAt.top }}>
+            <Dropdown>
               <DropdownItem
                 icon={<ArrowUpToLine size={14} aria-hidden="true" />}
                 onClick={() => {
@@ -114,6 +114,7 @@ export function PageEditOverlay({
                 {menuArmed ? "Click again to remove" : "Remove this page"}
               </DropdownItem>
             </Dropdown>
+          </div>
         )}
       </AnimatePresence>
     </div>
