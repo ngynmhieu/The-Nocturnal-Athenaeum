@@ -4,9 +4,11 @@ interface PageViewProps {
   page: Page;
   /** Signed CDN URL for the page's Storage object. */
   imageUrl?: string;
+  /** Laid over the image (edit mode's controls). */
+  children?: React.ReactNode;
 }
 
-export function PageView({ page, imageUrl }: PageViewProps) {
+export function PageView({ page, imageUrl, children }: PageViewProps) {
   // Reserve the box from the stored intrinsic dims → no layout shift while the
   // image streams in. content-visibility lets the browser skip off-screen work
   // (the lightweight stand-in for full list virtualization).
@@ -14,7 +16,7 @@ export function PageView({ page, imageUrl }: PageViewProps) {
 
   return (
     <div
-      className="w-full bg-[var(--owl-cream-mid)]/30"
+      className="relative w-full bg-[var(--owl-cream-mid)]/30"
       style={{
         aspectRatio,
         contentVisibility: "auto",
@@ -30,6 +32,7 @@ export function PageView({ page, imageUrl }: PageViewProps) {
           className="size-full object-contain"
         />
       )}
+      {children}
     </div>
   );
 }

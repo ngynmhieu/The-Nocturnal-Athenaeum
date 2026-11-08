@@ -64,18 +64,20 @@ class ScrapeService:
         urls: list[str],
         referer: str | None = None,
         sizes: dict[str, PageSize] | None = None,
+        at: int | None = None,
     ) -> list[PageInfo] | None:
         """Download + upload each URL server-side (browsers can't fetch cross-origin/
         hotlink-protected images), under the section's own prefix, then record pages
-        in `urls` order. A URL that fails to download is skipped, not fatal to the batch.
+        in `urls` order — appended, or from position `at` with later pages moved
+        down. A URL that fails to download is skipped, not fatal to the batch.
         """
         section = await self._repo.get_section(section_id, self._user_id)
         if section is None:
             return None
 
-        start_position = await self._repo.count_pages(section_id)
         downloads = await self._download_all(urls, referer)
         landed = [(url, download) for url, download in zip(urls, downloads) if download is not None]
+        start_position = await self._repo.reserve_positions(section_id, len(landed), at)
         sizes = sizes or {}
 
         # Positions are fixed from the request order before uploading, so the

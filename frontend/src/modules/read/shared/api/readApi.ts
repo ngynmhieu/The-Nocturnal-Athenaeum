@@ -120,6 +120,9 @@ async function* requestStream<T>(path: string, init: RequestInit = {}): AsyncGen
   }
 }
 
+/** `?at=N` — insert new pages from position N instead of appending. */
+const atQuery = (at?: number) => (at === undefined ? "" : `?at=${at}`);
+
 export const readApi = {
   // --- mangas ---
   listMangas: () => request<MangaSummary[]>("/read/mangas"),
@@ -182,6 +185,9 @@ export const readApi = {
   // --- pages ---
   listPages: (sectionId: string) => request<PageInfo[]>(`/read/sections/${sectionId}/pages`),
 
+  /** Removes the page row and its Storage object; later pages move up one. */
+  deletePage: (pageId: string) => request<void>(`/read/pages/${pageId}`, { method: "DELETE" }),
+
   reorderPages: (sectionId: string, orderedPageIds: string[]) =>
     request<void>(`/read/sections/${sectionId}/pages/order`, {
       method: "PATCH",
@@ -202,9 +208,16 @@ export const readApi = {
     }),
 
   /** Direct pull: the backend downloads `urls` and appends them to the section in
-   *  exactly this order — no pool in between. `sizes` is keyed by URL. */
-  importIntoSection: (sectionId: string, urls: string[], referer?: string | null, sizes?: Record<string, PageSize>) =>
-    request<PageInfo[]>(`/read/sections/${sectionId}/import`, {
+   *  exactly this order — no pool in between. `sizes` is keyed by URL. `at`
+   *  inserts them from that position instead (later pages move down). */
+  importIntoSection: (
+    sectionId: string,
+    urls: string[],
+    referer?: string | null,
+    sizes?: Record<string, PageSize>,
+    at?: number
+  ) =>
+    request<PageInfo[]>(`/read/sections/${sectionId}/import${atQuery(at)}`, {
       method: "POST",
       body: JSON.stringify({ urls, referer: referer ?? null, sizes: sizes ?? {} }),
     }),
@@ -231,8 +244,9 @@ export const readApi = {
       body: JSON.stringify({ urls, referer: referer ?? null }),
     }),
 
-  insertFromLibrary: (sectionId: string, assetIds: string[]) =>
-    request<PageInfo[]>(`/read/sections/${sectionId}/pages/from-library`, {
+  /** `at` inserts from that position (later pages move down); omitted, they're appended. */
+  insertFromLibrary: (sectionId: string, assetIds: string[], at?: number) =>
+    request<PageInfo[]>(`/read/sections/${sectionId}/pages/from-library${atQuery(at)}`, {
       method: "POST",
       body: JSON.stringify({ asset_ids: assetIds }),
     }),

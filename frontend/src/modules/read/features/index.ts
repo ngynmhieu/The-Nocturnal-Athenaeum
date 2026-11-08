@@ -13,6 +13,7 @@ export type { SeriesPullStatus } from "./manga-sections/pull-series";
 export { useInsertFromLibrary } from "./manga-reader/insert-from-library";
 export { useReorderPages } from "./manga-reader/reorder-pages";
 export { usePullPages } from "./manga-reader/pull-pages";
+export { useDeletePage } from "./manga-reader/delete-page";
 
 // --- library ---
 export { useCollectToLibrary } from "./library/collect-to-library";

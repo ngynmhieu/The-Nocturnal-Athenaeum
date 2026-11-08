@@ -85,14 +85,22 @@ delegates — no branching here.
 | `GET /read/sections/{id}/pages` | `ReadService.list_pages(id)` → ordered `PageInfo[]` |
 | `POST /read/sections/{id}/pages` | `ReadService.record_pages(id, body)` — persist rows for already-uploaded files |
 | `PATCH /read/sections/{id}/pages/order` | `ReadService.reorder_pages(id, body)` |
+| `DELETE /read/pages/{id}` | `ReadService.delete_page(id)` — row + Storage file; later pages move up one (`ReadRepository.delete_page`) |
 | `POST /read/scrape` | `ScrapeService.scrape(url)` → candidate image URLs (+ the `referer` downloads need); 422 on `ExtractorError` |
 | `POST /read/scrape/series` | `ScrapeService.list_series(url, language)` → a series' volumes in reading order; 422 on `ExtractorError` |
-| `POST /read/sections/{id}/import` | `ScrapeService.import_into(id, body)` — the **direct pull**: download + upload + record straight into a section, in request order |
+| `POST /read/sections/{id}/import` | `ScrapeService.import_into(id, body, at)` — the **direct pull**: download + upload + record straight into a section, in request order. `?at=N` inserts from position N instead of appending |
 | `GET /read/library` | `ReadService.list_library()` → the user's pool, in collect order |
 | `POST /read/library` | `ReadService.stream_record_library_assets(body)` — NDJSON stream, one line per pool file the frontend already uploaded |
 | `POST /read/library/import` | `ScrapeService.stream_import_to_library(body)` — NDJSON stream, one line per scrape candidate downloaded into the pool |
-| `POST /read/sections/{id}/pages/from-library` | `ReadService.organize_from_library(id, body)` — move ordered pool assets into a section |
+| `POST /read/sections/{id}/pages/from-library` | `ReadService.organize_from_library(id, body, at)` — move ordered pool assets into a section; `?at=N` inserts from position N (the reader's "add page before/after") |
 | `DELETE /read/library/{id}` | `ReadService.discard_library_asset(id)` (also deletes the Storage file) |
+
+Inserting in the middle and deleting both keep positions contiguous from 0:
+`ReadRepository.reserve_positions(section, count, at)` shifts the pages from `at`
+down by `count` before the insert, and `delete_page` shifts the later ones up by
+one. Both go through negative positions first (`_shift_positions`), like
+`set_positions`, because the unique `(section_id, position)` index is checked row
+by row.
 
 ### `services/read.py` — `ReadService` (request-scoped)
 CRUD + reorder over the four tables, scoped to `user.id` on every query (the

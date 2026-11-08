@@ -58,7 +58,8 @@ frontend/src/
           set-section-cover/         ← pick a library asset as a section's cover
           pull-series/               ← series link → volumes; create + pull each, one at a time
         manga-reader/
-          insert-from-library/       ← selected library assets (ordered) → POST /read/sections/:id/pages/from-library
+          insert-from-library/       ← selected library assets (ordered) → POST /read/sections/:id/pages/from-library (?at=N to insert mid-section)
+          delete-page/               ← remove one page → DELETE /read/pages/:id
           reorder-pages/             ← drag-reorder → PATCH …/pages/order
           pull-pages/                ← scraped candidates (site order) → POST /read/sections/:id/import
         library/
@@ -113,6 +114,19 @@ hand: pages land in **the site's own order**.
   volumes; volumes this manga already has start unticked → **Pull N volumes** →
   `pull-series` goes one volume at a time: scrape → create the section → import,
   showing per-volume status. A failed volume is marked and the rest continue.
+
+### Fixing pages in place
+
+In the reader's edit mode every page carries `PageEditOverlay` (in
+`widgets/MangaReader/components/`):
+
+- **✕** in its corner: the first click arms it ("Remove?"), the second removes the
+  page (`delete-page` → `DELETE /read/pages/{id}`, row + Storage file, later pages
+  move up). Moving the pointer away disarms it.
+- **Click the page** → a menu: **Add page before**, **Add page after**, **Remove this
+  page** (also asks twice). The add options open `PoolPickerModal` with an `at`
+  position, so whatever is picked (scraped, uploaded, or already in the pool) goes
+  in at that spot via `POST …/pages/from-library?at=N`.
 
 ## The two upload flows
 

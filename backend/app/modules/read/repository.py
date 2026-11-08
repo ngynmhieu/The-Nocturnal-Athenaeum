@@ -200,6 +200,52 @@ class ReadRepository:
             )
         return True
 
+    async def get_page(self, page_id: uuid.UUID, user_id: uuid.UUID) -> MangaPage | None:
+        result = await self._session.execute(
+            select(MangaPage)
+            .join(MangaSection, MangaSection.id == MangaPage.section_id)
+            .join(Manga, Manga.id == MangaSection.manga_id)
+            .where(MangaPage.id == page_id, Manga.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_page(self, page: MangaPage) -> None:
+        """Delete one page and close the gap it leaves (later pages move up one)."""
+        await self._session.delete(page)
+        await self._session.flush()
+        await self._shift_positions(page.section_id, from_position=page.position + 1, by=-1)
+
+    async def reserve_positions(self, section_id: uuid.UUID, count: int, at: int | None = None) -> int:
+        """Free `count` consecutive positions and return the first one.
+
+        `at=None` appends after the last page. Otherwise the pages from `at` on
+        (clamped to the section's length) move down by `count` to make room, so
+        new pages can land in front of / behind any existing page.
+        """
+        total = await self.count_pages(section_id)
+        if at is None or at >= total:
+            return total
+        start = max(at, 0)
+        if count > 0:
+            await self._shift_positions(section_id, from_position=start, by=count)
+        return start
+
+    async def _shift_positions(self, section_id: uuid.UUID, from_position: int, by: int) -> None:
+        """Add `by` to every position `>= from_position`. Two passes through
+        negatives (as in `set_positions`): the unique `(section_id, position)`
+        index is checked row by row, so a one-step shift would collide with a
+        neighbour that hasn't moved yet."""
+        await self._session.execute(
+            update(MangaPage)
+            .where(MangaPage.section_id == section_id, MangaPage.position >= from_position)
+            .values(position=-(MangaPage.position + by) - 1)
+        )
+        await self._session.execute(
+            update(MangaPage)
+            .where(MangaPage.section_id == section_id, MangaPage.position < 0)
+            .values(position=-MangaPage.position - 1)
+        )
+
     async def manga_storage_paths(self, manga_id: uuid.UUID) -> list[str]:
         """Every Storage object under a manga (cover + section covers + pages) —
         gathered before delete, since the DB cascade drops rows, not files."""

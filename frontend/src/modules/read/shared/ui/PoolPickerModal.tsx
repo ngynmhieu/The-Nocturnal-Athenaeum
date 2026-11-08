@@ -15,9 +15,10 @@ import { ScrapePicker } from "./ScrapePicker";
 import { UploadTray } from "./UploadTray";
 
 /** What picking from the pool is for — one pool, three destinations. Only
- *  `section-pages` allows more than one pick (a covNoer is always exactly one). */
+ *  `section-pages` allows more than one pick (a cover is always exactly one).
+ *  `section-pages` with `at` inserts from that position instead of appending. */
 export type PoolPickerTarget =
-  | { kind: "section-pages"; sectionId: string; onDone: (pages: Page[]) => void }
+  | { kind: "section-pages"; sectionId: string; at?: number; onDone: (pages: Page[]) => void }
   | { kind: "manga-cover"; mangaId: string; onDone: () => void }
   | { kind: "section-cover"; sectionId: string; onDone: () => void };
 
@@ -66,13 +67,18 @@ export function PoolPickerModal({ open, onClose, target }: PoolPickerModalProps)
     : multiItemClick;
 
   const busy = target.kind === "section-pages" ? inserting : target.kind === "manga-cover" ? settingMangaCover : settingSectionCover;
-  const heading = target.kind === "section-pages" ? "Add pages from the pool" : "Choose a cover from the pool";
+  const heading =
+    target.kind !== "section-pages"
+      ? "Choose a cover from the pool"
+      : target.at === undefined
+        ? "Add pages from the pool"
+        : `Add pages from the pool — they'll go in as page ${target.at + 1}`;
   const confirmLabel = target.kind === "section-pages" ? "Add" : "Use as cover";
   const busyLabel = target.kind === "section-pages" ? "Adding…" : "Setting…";
 
   const confirm = async () => {
     if (target.kind === "section-pages") {
-      const pages = await insert(picked);
+      const pages = await insert(picked, target.at);
       removeAssets(picked);
       setPicked([]);
       target.onDone(pages);
