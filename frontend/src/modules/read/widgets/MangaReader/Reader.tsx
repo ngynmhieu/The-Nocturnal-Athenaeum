@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { displayedImage } from "../../entities";
 import type { Page } from "../../entities";
-import type { ReaderWidth } from "../../features";
+import type { PagePreview, ReaderWidth } from "../../features";
+import type { VersionKind } from "../../shared";
 import { PageView } from "./components/PageView";
 import { PageEditOverlay } from "./components/PageEditOverlay";
+import { PickReferenceBanner } from "./components/PickReferenceBanner";
+import { VersionPreview } from "./components/VersionPreview";
 
 /** Ignore scroll jitter smaller than this (px) when deciding direction. */
 const SCROLL_DIRECTION_THRESHOLD = 8;
@@ -20,6 +23,8 @@ const PRELOAD_AHEAD = 5;
 const PRELOAD_BEHIND = 1;
 /** The strip's width per preference. Phones always read full width — half a
  *  phone screen is too small to read — so only md+ screens narrow it. */
+/** Pages at least this tall are already sharp enough — no Upscale item. */
+const UPSCALE_MAX_HEIGHT = 1600;
 const WIDTH_CLASS: Record<ReaderWidth, string> = {
   full: "",
   "three-quarters": "md:w-3/4",
@@ -44,6 +49,18 @@ interface ReaderProps {
   onMovePage?: (page: Page, direction: -1 | 1) => void;
   /** Add pages so they land at this position (pages from there move down). */
   onAddPagesAt?: (position: number) => void;
+  /** Make an upscaled preview of a page. */
+  onUpscalePage?: (page: Page) => void;
+  /** Make a translated preview of `target` using `reference`'s lettering. */
+  onTranslatePage?: (target: Page, reference: Page) => void;
+  /** Delete one of a page's accepted versions. */
+  onRemoveVersion?: (page: Page, kind: VersionKind) => void;
+  /** The generated version awaiting Accept / Discard, laid over its page. */
+  preview?: PagePreview | null;
+  /** An upscale / translate / accept / discard / remove request is running. */
+  versionsBusy?: boolean;
+  onAcceptPreview?: () => void;
+  onDiscardPreview?: () => void;
 }
 
 /** The reading view: a vertical long-strip of pages loading straight from the
@@ -59,6 +76,13 @@ export function Reader({
   onRemovePage,
   onMovePage,
   onAddPagesAt,
+  onUpscalePage,
+  onTranslatePage,
+  onRemoveVersion,
+  preview = null,
+  versionsBusy = false,
+  onAcceptPreview,
+  onDiscardPreview,
 }: ReaderProps) {
   // One page menu at a time; a click anywhere outside it closes it.
   const [menuPageId, setMenuPageId] = useState<string | null>(null);
@@ -72,6 +96,28 @@ export function Reader({
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [openMenuId]);
+
+  // Pick-reference mode: the page being translated, while its reference is chosen.
+  // Leaving edit mode ends it (state adjusted during render, not in an effect).
+  const [pickingFor, setPickingFor] = useState<Page | null>(null);
+  if (!editing && pickingFor) setPickingFor(null);
+  useEffect(() => {
+    if (!pickingFor) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPickingFor(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [pickingFor]);
+  const pickReference = (reference: Page) => {
+    if (!pickingFor || reference.id === pickingFor.id) return;
+    const target = pickingFor;
+    setPickingFor(null);
+    onTranslatePage?.(target, reference);
+  };
+  const pickIndex = pickingFor ? pages.findIndex((p) => p.id === pickingFor.id) : -1;
+  // One version at a time: no new upscale / translate while one runs or waits.
+  const versionsLocked = versionsBusy || preview !== null;
 
   // Pages whose original is shown instead of their accepted version (not persisted).
   const [showOriginal, setShowOriginal] = useState<Set<string>>(() => new Set());
@@ -128,12 +174,19 @@ export function Reader({
     // Desktop scrolls inside this box (and folds the header via onScroll); on a
     // phone the page itself scrolls, so the header just scrolls away with it.
     <div className="md:h-full md:overflow-y-auto" onScroll={onScroll}>
+      {pickingFor && (
+        <PickReferenceBanner targetPosition={pickingFor.position} onCancel={() => setPickingFor(null)} />
+      )}
       <div ref={listRef} className={`mx-auto flex w-full flex-col ${WIDTH_CLASS[width]}`}>
         {pages.map((page, index) => {
           const original = showOriginal.has(page.id);
           const image = displayedImage(page, original);
           // The label of the version this page would show (not the forced original).
           const versionLabel = displayedImage(page, false).label;
+          const versions = page.versions ?? [];
+          const hasUpscale = versions.some((v) => v.kind === "upscaled");
+          const hasTranslation = versions.some((v) => v.kind === "translated" && v.language === "en");
+          const canUpscale = !hasUpscale && (page.height ?? 0) < UPSCALE_MAX_HEIGHT;
           return (
           <PageView
             key={page.id}
@@ -158,6 +211,34 @@ export function Reader({
                 onMoveUp={onMovePage && index > 0 ? (p) => onMovePage(p, -1) : undefined}
                 onMoveDown={onMovePage && index < pages.length - 1 ? (p) => onMovePage(p, 1) : undefined}
                 onAddAt={onAddPagesAt}
+                onUpscale={onUpscalePage && canUpscale ? onUpscalePage : undefined}
+                onRemoveUpscale={onRemoveVersion && hasUpscale ? (p) => onRemoveVersion(p, "upscaled") : undefined}
+                onTranslate={onTranslatePage ? setPickingFor : undefined}
+                onRemoveTranslation={
+                  onRemoveVersion && hasTranslation ? (p) => onRemoveVersion(p, "translated") : undefined
+                }
+                versionsLocked={versionsLocked}
+                pick={
+                  pickingFor
+                    ? {
+                        role:
+                          page.id === pickingFor.id
+                            ? "target"
+                            : Math.abs(index - pickIndex) === 1
+                              ? "suggested"
+                              : "other",
+                        onPick: pickReference,
+                      }
+                    : undefined
+                }
+              />
+            )}
+            {preview?.pageId === page.id && onAcceptPreview && onDiscardPreview && (
+              <VersionPreview
+                preview={preview}
+                busy={versionsBusy}
+                onAccept={onAcceptPreview}
+                onDiscard={onDiscardPreview}
               />
             )}
           </PageView>

@@ -5,7 +5,7 @@ import { LoadingDialog } from "@/shared/ui";
 import owlMascot from "@/shared/assets/owl_reading_book_with_glasses.png";
 import { useSignedUrls, PoolPickerModal } from "../shared";
 import { useSectionPages, useMangaDetail, sectionLabel } from "../entities";
-import { useDeletePage, useReorderPages, useReaderWidth, READER_WIDTHS } from "../features";
+import { useDeletePage, useReorderPages, useReaderWidth, usePageVersions, READER_WIDTHS } from "../features";
 import type { Page } from "../entities";
 import { Reader, PullPagesModal } from "../widgets";
 
@@ -15,7 +15,8 @@ import { Reader, PullPagesModal } from "../widgets";
  *  `PullPagesModal`) and "Add pages" (pick from the pool, for images collected
  *  earlier — see `PoolPickerModal`), plus per-page controls in the reader:
  *  remove a page, move it up / down one place, or add pages in front of /
- *  behind it (the pool picker again, with an insert position). */
+ *  behind it (the pool picker again, with an insert position), upscale it or
+ *  translate it by reference (preview → Accept / Discard), or remove a version. */
 export function MangaReaderPage() {
   const { mangaId, sectionId } = useParams();
   const navigate = useNavigate();
@@ -35,8 +36,16 @@ export function MangaReaderPage() {
   const [pageError, setPageError] = useState<string | null>(null);
   const { width: readerWidth, setWidth: setReaderWidth } = useReaderWidth();
 
+  // Upscale / translate-by-reference previews and accepted versions; every
+  // change refetches the pages so the reader shows (and the menu offers) the
+  // current versions.
+  const versions = usePageVersions(refresh);
+
   const removePage = async (page: { id: string; position: number }) => {
     setPageError(null);
+    // Removing the page under an open preview discards that preview first, so
+    // its Storage file doesn't outlive the page.
+    if (versions.preview?.pageId === page.id) await versions.discard();
     try {
       await deletePage(page.id);
     } catch {
@@ -108,7 +117,9 @@ export function MangaReaderPage() {
                 <p className="text-sm text-[var(--owl-brown-muted)] truncate">
                   {pages.length} page{pages.length === 1 ? "" : "s"}
                 </p>
-                {pageError && <p className="text-sm text-[var(--owl-brown-deep)]">{pageError}</p>}
+                {(pageError ?? versions.error) && (
+                  <p className="text-sm text-[var(--owl-brown-deep)]">{pageError ?? versions.error}</p>
+                )}
               </div>
               {/* Page-strip width — remembered per browser; phones always read full width. */}
               <div
@@ -151,7 +162,12 @@ export function MangaReaderPage() {
                 </button>
               )}
               <button
-                onClick={() => setEditing((e) => !e)}
+                onClick={() => {
+                  // Leaving edit mode drops an open preview (the reader also
+                  // ends pick-reference mode on its own).
+                  if (editing && versions.preview) void versions.discard();
+                  setEditing((e) => !e);
+                }}
                 className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer"
               >
                 {editing ? <Check size={15} aria-hidden="true" /> : <Pencil size={15} aria-hidden="true" />}
@@ -177,10 +193,26 @@ export function MangaReaderPage() {
             width={readerWidth}
             onHeaderHiddenChange={setHeaderHidden}
             editing={editing}
-            busyPageId={deletingId ?? movingId}
+            busyPageId={deletingId ?? movingId ?? versions.busyId}
             onRemovePage={removePage}
             onMovePage={movePage}
             onAddPagesAt={setPoolAt}
+            onUpscalePage={(page) => {
+              setPageError(null);
+              void versions.upscale(page);
+            }}
+            onTranslatePage={(target, reference) => {
+              setPageError(null);
+              void versions.translate(target, reference);
+            }}
+            onRemoveVersion={(page, kind) => {
+              setPageError(null);
+              void versions.remove(page, kind);
+            }}
+            preview={versions.preview}
+            versionsBusy={versions.busyId !== null}
+            onAcceptPreview={() => void versions.accept()}
+            onDiscardPreview={() => void versions.discard()}
           />
         )}
       </div>

@@ -35,14 +35,22 @@ export function DropdownSection({ children }: DropdownSectionProps) {
 interface DropdownItemProps {
   icon?: React.ReactNode;
   onClick?: () => void;
+  /** Shown but not actionable: muted, `aria-disabled`, and clicks do nothing. */
+  disabled?: boolean;
   children: React.ReactNode;
 }
 
-export function DropdownItem({ icon, onClick, children }: DropdownItemProps) {
+export function DropdownItem({ icon, onClick, disabled = false, children }: DropdownItemProps) {
   return (
     <button
-      onClick={onClick}
-      className="flex items-center gap-2 w-full px-3 py-2 text-xs cursor-pointer text-[var(--owl-brown)] hover:bg-[var(--owl-brown)]/10 hover:text-[var(--owl-brown-deep)] backdrop-blur-sm transition-colors"
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      aria-disabled={disabled || undefined}
+      className={`flex items-center gap-2 w-full px-3 py-2 text-xs backdrop-blur-sm transition-colors ${
+        disabled
+          ? "cursor-default text-[var(--owl-brown-muted)]/50"
+          : "cursor-pointer text-[var(--owl-brown)] hover:bg-[var(--owl-brown)]/10 hover:text-[var(--owl-brown-deep)]"
+      }`}
     >
       {icon}
       {children}
