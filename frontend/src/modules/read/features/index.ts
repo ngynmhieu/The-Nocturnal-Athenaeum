@@ -16,6 +16,8 @@ export { usePullPages } from "./manga-reader/pull-pages";
 export { useDeletePage } from "./manga-reader/delete-page";
 export { useReaderWidth, READER_WIDTHS } from "./manga-reader/set-reader-width";
 export type { ReaderWidth } from "./manga-reader/set-reader-width";
+export { usePageVersions } from "./manga-reader/page-versions";
+export type { PagePreview } from "./manga-reader/page-versions";
 
 // --- library ---
 export { useCollectToLibrary } from "./library/collect-to-library";

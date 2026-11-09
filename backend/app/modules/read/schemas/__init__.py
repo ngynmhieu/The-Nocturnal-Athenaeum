@@ -9,7 +9,7 @@ sits next to the responses it relates to:
     section.py   /read/mangas/{id}/sections*,     SectionCreate, SectionUpdate (req)
                  /read/sections/{id}              SectionSummary (resp)
     page.py      /read/sections/{id}/pages*       PageRecord, ReorderRequest (req)
-                                                    PageInfo (resp)
+                                                    PageInfo, PageVersionInfo (resp)
     library.py   /read/library*,                  LibraryAssetRecord, OrganizeRequest,
                  /read/*/cover/from-library         CoverFromLibraryRequest (req)
                                                     LibraryAssetInfo (resp)
@@ -17,16 +17,21 @@ sits next to the responses it relates to:
                                                     ImportRequest, LibraryImportRequest (req)
                                                     ScrapeResult, ScrapeCandidate,
                                                     SeriesResult, SeriesEntryInfo (resp)
+    version.py   /read/pages/{id}/upscale,        TranslateRequest, AcceptVersionRequest (req)
+                 /read/pages/{id}/translate,       VersionPreview (resp)
+                 /read/pages/{id}/versions*
 
 Quick reference — which way does it cross the wire?
 
     Requests  (client → backend):  MangaCreate, MangaUpdate, SectionCreate, SectionUpdate,
                                     PageRecord, ReorderRequest, LibraryAssetRecord,
                                     OrganizeRequest, CoverFromLibraryRequest, ScrapeRequest,
-                                    SeriesRequest, ImportRequest, LibraryImportRequest
+                                    SeriesRequest, ImportRequest, LibraryImportRequest,
+                                    TranslateRequest, AcceptVersionRequest
     Responses (backend → client):  MangaSummary, MangaDetail, SectionSummary,
-                                    PageInfo, LibraryAssetInfo, ScrapeResult,
-                                    ScrapeCandidate, SeriesResult, SeriesEntryInfo
+                                    PageInfo, PageVersionInfo, LibraryAssetInfo, ScrapeResult,
+                                    ScrapeCandidate, SeriesResult, SeriesEntryInfo,
+                                    VersionPreview
 """
 from .library import (
     CoverFromLibraryRequest,
@@ -36,7 +41,7 @@ from .library import (
     OrganizeRequest,
 )
 from .manga import MangaCreate, MangaDetail, MangaSummary, MangaUpdate
-from .page import PageInfo, PageRecord, ReorderRequest
+from .page import PageInfo, PageRecord, PageVersionInfo, ReorderRequest
 from .scrape import (
     ImportRequest,
     LibraryImportRequest,
@@ -49,6 +54,7 @@ from .scrape import (
     SeriesResult,
 )
 from .section import SectionCreate, SectionSummary, SectionUpdate
+from .version import AcceptVersionRequest, TranslateRequest, VersionKind, VersionPreview
 
 __all__ = [
     # --- requests (client → backend) ---
@@ -67,14 +73,19 @@ __all__ = [
     "ImportRequest",
     "PageSize",
     "LibraryImportRequest",
+    "TranslateRequest",
+    "AcceptVersionRequest",
+    "VersionKind",
     # --- responses (backend → client) ---
     "MangaSummary",
     "MangaDetail",
     "SectionSummary",
     "PageInfo",
+    "PageVersionInfo",
     "LibraryAssetInfo",
     "ScrapeResult",
     "ScrapeCandidate",
     "SeriesResult",
     "SeriesEntryInfo",
+    "VersionPreview",
 ]

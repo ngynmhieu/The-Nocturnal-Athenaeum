@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 
 from .core.config import settings
+from .shared.images import UpscaleClient
 from .shared.llm import LlmClient
 from .shared.storage import StorageClient
 from .modules.chat import router as chat_router
@@ -47,6 +48,9 @@ async def lifespan(app: FastAPI):
         settings.supabase_url, settings.supabase_service_role_key, settings.manga_bucket
     )
 
+    # Upscale requests go to the same models service as chat.
+    app.state.upscale_client = UpscaleClient(settings.models_service_url)
+
     logger.info("FastAPI app ready")
     yield
 
@@ -55,6 +59,7 @@ async def lifespan(app: FastAPI):
     app.state.auth_service = None
     app.state.llm_client = None
     app.state.storage_client = None
+    app.state.upscale_client = None
 
 
 def create_app() -> FastAPI:

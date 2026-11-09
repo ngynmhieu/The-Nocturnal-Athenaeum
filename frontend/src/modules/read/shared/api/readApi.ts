@@ -29,6 +29,31 @@ export interface MangaDetail extends MangaSummary {
   sections: SectionSummary[];
 }
 
+export type VersionKind = "upscaled" | "translated";
+
+/** An accepted alternative image of a page (upscale, or a translation). */
+export interface PageVersionInfo {
+  id: string;
+  kind: VersionKind;
+  language: string | null;
+  storagePath: string;
+  width: number | null;
+  height: number | null;
+  referencePageId: string | null;
+}
+
+/** A generated-but-not-yet-accepted version. Show `previewUrl` directly — it is
+ *  freshly signed and cache-busted; never sign `previewPath` via `useSignedUrls`. */
+export interface VersionPreview {
+  kind: VersionKind;
+  language: string | null;
+  previewPath: string;
+  previewUrl: string;
+  width: number | null;
+  height: number | null;
+  referencePageId: string | null;
+}
+
 export interface PageInfo {
   id: string;
   storagePath: string;
@@ -36,6 +61,8 @@ export interface PageInfo {
   width: number | null;
   height: number | null;
   createdAt: string;
+  /** Accepted versions; older backends omit it, so `listPages` fills in `[]`. */
+  versions: PageVersionInfo[];
 }
 
 export interface LibraryAssetInfo {
@@ -183,7 +210,42 @@ export const readApi = {
     request<void>(`/read/sections/${sectionId}`, { method: "DELETE" }),
 
   // --- pages ---
-  listPages: (sectionId: string) => request<PageInfo[]>(`/read/sections/${sectionId}/pages`),
+  listPages: async (sectionId: string) => {
+    const pages = await request<PageInfo[]>(`/read/sections/${sectionId}/pages`);
+    return pages.map((p) => ({ ...p, versions: p.versions ?? [] }));
+  },
+
+  // --- page versions (upscale / translate by reference) ---
+  upscalePage: (pageId: string) =>
+    request<VersionPreview>(`/read/pages/${pageId}/upscale`, { method: "POST" }),
+
+  translatePage: (pageId: string, referencePageId: string) =>
+    request<VersionPreview>(`/read/pages/${pageId}/translate`, {
+      method: "POST",
+      body: JSON.stringify({ reference_page_id: referencePageId }),
+    }),
+
+  acceptVersion: (
+    pageId: string,
+    body: { kind: VersionKind; language?: string | null; referencePageId?: string | null }
+  ) =>
+    request<PageVersionInfo>(`/read/pages/${pageId}/versions/accept`, {
+      method: "POST",
+      body: JSON.stringify({
+        kind: body.kind,
+        ...(body.language != null && { language: body.language }),
+        ...(body.referencePageId != null && { reference_page_id: body.referencePageId }),
+      }),
+    }),
+
+  discardPreview: (pageId: string, kind: VersionKind) =>
+    request<void>(`/read/pages/${pageId}/versions/preview?kind=${kind}`, { method: "DELETE" }),
+
+  removeVersion: (pageId: string, kind: VersionKind, language?: string | null) =>
+    request<void>(
+      `/read/pages/${pageId}/versions?kind=${kind}${language ? `&language=${encodeURIComponent(language)}` : ""}`,
+      { method: "DELETE" }
+    ),
 
   /** Removes the page row and its Storage object; later pages move up one. */
   deletePage: (pageId: string) => request<void>(`/read/pages/${pageId}`, { method: "DELETE" }),

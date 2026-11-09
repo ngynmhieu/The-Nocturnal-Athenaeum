@@ -1,4 +1,4 @@
-# Schema: `read` module — `mangas`, `manga_sections`, `manga_pages`, `library_assets` + `manga` storage bucket
+# Schema: `read` module — `mangas`, `manga_sections`, `manga_pages`, `manga_page_versions`, `library_assets` + `manga` storage bucket
 
 > Per-module schema doc — the database half of the manga-reader feature (the
 > `read` module; **"Lector"** is the user-facing display name only). Mirrors how the
@@ -17,7 +17,8 @@ The generator has stamped them into flat migrations, applied in file order:
 FKs only `auth.users`, so it has no ordering dependency on the others — it was simply
 generated last) → `add_library_assets_position` (adds `position`, hand-written ALTER +
 backfill) → `alter_library_assets_storage_path` (loosens `storage_path` to nullable, for
-the streaming-collect reservation described below). Next step: `supabase db push`.
+the streaming-collect reservation described below) → `add_manga_page_versions`
+(stamped with `gen_migration.py`, applied to the local database). Next step: `supabase db push`.
 
 ## Why these are SQL migrations (not SQLAlchemy)
 
@@ -33,6 +34,7 @@ keeps only an ORM read/write view in `backend/app/modules/read/models.py`.
 mangas            one manga series, owned by a user
   └─ manga_sections   a volume OR a chapter (kind discriminator)
        └─ manga_pages     one image per section, ordered by `position`
+            └─ manga_page_versions   accepted upscaled / translated ('en') image of a page
 
 library_assets    a user's *unassigned* image pool — scraped or uploaded,
                   not yet organized into any manga (no manga link)
@@ -178,6 +180,36 @@ create policy "Delete pages through an owned manga"
 > Reorder = rewrite `position` for the affected rows (the backend does this in one
 > transaction). No update policy on pages beyond that is needed yet.
 
+## `manga_page_versions`
+
+An accepted derived version of a page: its **upscaled** image and/or its **translated**
+(`language = 'en'`) image. At most one row per `(page_id, kind, language)`. `language` is
+null for `upscaled` and required for `translated` (enforced by a check). `reference_page_id`
+is the page used as the translation reference; it is set null if that page is deleted.
+
+```sql
+create table if not exists public.manga_page_versions (
+  id                uuid        primary key default gen_random_uuid(),
+  page_id           uuid        not null references public.manga_pages (id) on delete cascade,
+  kind              text        not null check (kind in ('upscaled', 'translated')),
+  language          text,                  -- null for upscaled; 'en' for translated
+  storage_path      text        not null,  -- object path in the `manga` bucket
+  width             integer,
+  height            integer,
+  reference_page_id uuid        references public.manga_pages (id) on delete set null,
+  created_at        timestamptz not null default now(),
+  check ((kind = 'upscaled') = (language is null))
+);
+
+create unique index if not exists manga_page_versions_page_kind_lang_idx
+  on public.manga_page_versions (page_id, kind, coalesce(language, ''));
+create index if not exists manga_page_versions_page_idx
+  on public.manga_page_versions (page_id);
+```
+
+RLS is enabled with select/insert/update/delete policies that join
+`manga_pages -> manga_sections -> mangas` on `auth.uid()` (same shape as `manga_pages`).
+
 ## `library_assets`
 
 One row per **unassigned** image in a user's pool — an image that has been scraped or
@@ -236,6 +268,8 @@ owner so one RLS rule on `storage.objects` enforces ownership:
 ```
 manga/{user_id}/{manga_id}/{section_id}/{position}-{uuid}.{ext}   ← a page in a series
 manga/{user_id}/_pool/{uuid}.{ext}                               ← an unassigned pool asset
+manga/{user_id}/{manga_id}/{section_id}/v-{uuid}.png            ← an accepted upscale/translate version of a page
+manga/{user_id}/_preview/{page_id}-{kind}.png                    ← a not-yet-accepted preview (overwritten by the next run)
         ▲ first path segment = owner (the only segment RLS checks)
 ```
 
@@ -285,6 +319,12 @@ create policy "Delete own manga files"
   their `library_assets` (table rows) via `on delete cascade`. **Storage objects are
   NOT cascaded** by the DB — the backend deletes the files from the bucket when a
   manga/section/page row, or a *discarded* pool asset, is removed.
+- **Page versions: cascade and file clean-up.** Deleting a `manga_pages` row cascades to
+  its `manga_page_versions` rows (table rows only); deleting a page that was another
+  version's translation reference just nulls `reference_page_id`. Storage objects are not
+  cascaded, so the backend must delete each version's file when removing a version, page,
+  section or manga. `_preview/` objects are transient: they are deleted when a preview is
+  rejected or replaced, and promoted to a version (row + kept file) only on accept.
 - **The pool lifecycle.** A `library_assets` row has exactly two exits, and they treat
   the underlying Storage object differently:
   - **Organized into a manga** — the backend creates a `manga_pages` row pointing at the

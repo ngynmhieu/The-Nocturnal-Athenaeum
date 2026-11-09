@@ -5,6 +5,7 @@ role where auth.uid() is not populated) — every query is scoped to `user.id`. 
 manga/section deletes and pool discards, the corresponding objects are removed from
 the `manga` bucket via `shared/storage/` (the DB cascade drops rows only, not files).
 """
+import logging
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -23,11 +24,19 @@ from ..schemas import (
     MangaUpdate,
     PageInfo,
     PageRecord,
+    PageVersionInfo,
     SectionCreate,
     SectionSummary,
     SectionUpdate,
 )
 from .library_stream import stream_collect
+
+logger = logging.getLogger(__name__)
+
+
+def owns_path(user_id: uuid.UUID, storage_path: str) -> bool:
+    """Whether a Storage path sits under the user's own prefix (`{user_id}/…`)."""
+    return storage_path.startswith(f"{user_id}/")
 
 
 class ReadService:
@@ -157,7 +166,13 @@ class ReadService:
         if await self._repo.get_section(section_id, self._user_id) is None:
             return None
         pages = await self._repo.list_pages(section_id)
-        return [PageInfo.model_validate(page) for page in pages]
+        versions = await self._repo.list_versions([page.id for page in pages])
+        return [
+            PageInfo.model_validate(page).model_copy(
+                update={"versions": [PageVersionInfo.model_validate(v) for v in versions.get(page.id, [])]}
+            )
+            for page in pages
+        ]
 
     async def record_pages(
         self, section_id: uuid.UUID, records: list[PageRecord]
@@ -189,10 +204,14 @@ class ReadService:
         page = await self._repo.get_page(page_id, self._user_id)
         if page is None:
             return False
-        storage_path = page.storage_path
+        paths = [page.storage_path, *await self._repo.version_paths_for_pages([page.id])]
         await self._repo.delete_page(page)
         await self._repo.commit()
-        await self._storage.remove([storage_path])
+        # Service-role removal: a row a user wrote through RLS could name someone else's object.
+        own = [path for path in paths if owns_path(self._user_id, path)]
+        for path in set(paths) - set(own):
+            logger.warning("Not removing %r: outside user %s's prefix", path, self._user_id)
+        await self._storage.remove(own)
         return True
 
     # --- library pool --------------------------------------------------------

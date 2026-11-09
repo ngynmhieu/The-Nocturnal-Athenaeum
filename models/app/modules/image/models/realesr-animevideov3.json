@@ -1,0 +1,13 @@
+{
+  "id": "realesr-animevideov3",
+  "weights_url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth",
+  "sha256": "b8a8376811077954d82ca3fcf476f1ac3da3e8a68a4f4d71363008000a18b75d",
+  "net_scale": 4,
+  "output_scale": 2,
+  "num_feat": 64,
+  "num_conv": 16,
+  "device": "cpu",
+  "tile": 0,
+  "description": "Real-ESRGAN anime-video v3 (SRVGGNetCompact) · x4 net, delivered at x2 · CPU.",
+  "default": true
+}

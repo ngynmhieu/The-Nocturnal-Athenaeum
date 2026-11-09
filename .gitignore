@@ -4,3 +4,5 @@
 # Read by `supabase start` to resolve env(...) in supabase/config.toml
 # (Google OAuth client secret)
 .env
+# Brainstorming mockups (superpowers visual companion)
+.superpowers/

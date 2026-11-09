@@ -63,6 +63,7 @@ frontend/src/
           reorder-pages/             ← drag-reorder → PATCH …/pages/order
           pull-pages/                ← scraped candidates (site order) → POST /read/sections/:id/import
           set-reader-width/          ← Full / ¾ / ½ page-strip width, remembered in localStorage
+          page-versions/             ← upscale / translate-by-reference preview → accept / discard; remove a version
         library/
           collect-to-library/        ← scraped/uploaded images → POST /read/library/import or /read/library
           discard-from-library/      ← remove a library asset (row + Storage file)
@@ -124,13 +125,51 @@ In the reader's edit mode every page carries `PageEditOverlay` (in
 - **✕** in its corner: the first click arms it ("Remove?"), the second removes the
   page (`delete-page` → `DELETE /read/pages/{id}`, row + Storage file, later pages
   move up). Moving the pointer away disarms it.
-- **Click the page** → a menu: **Move up one page**, **Move down one page**, **Add
-  page before**, **Add page after**, **Remove this page** (also asks twice). A move
+- **Click (or right-click) the page** → a menu: **Move up one page**, **Move down
+  one page**, **Add page before**, **Add page after**, **Upscale** *or* **Remove
+  upscale**, **Translate by reference…**, **Translate directly — coming later**
+  (disabled), **Remove translation** (only when one exists), **Remove this page**
+  (also asks twice). The version items are covered in *Upscale and translate*
+  below. A move
   swaps the page with its neighbour and saves the whole new order via
   `reorder-pages` (`PATCH …/pages/order`); Move up is hidden on the first page and
   Move down on the last. The add options open `PoolPickerModal` with an `at`
   position, so whatever is picked (scraped, uploaded, or already in the pool) goes
   in at that spot via `POST …/pages/from-library?at=N`.
+
+### Upscale and translate
+
+Also from the page menu in edit mode (`page-versions` → `usePageVersions`). Both
+end in a **preview** laid over the page (`VersionPreview`) with **Accept** and
+**Discard**; nothing is saved until Accept.
+
+- **Upscale** (`POST /read/pages/{id}/upscale`) — shown only when the page has no
+  upscale yet and is under 1600 px tall; otherwise **Remove upscale** shows
+  instead (when one exists).
+- **Translate by reference…** enters **pick-reference mode** (state in `Reader`):
+  a sticky `PickReferenceBanner` reads "Pick the reference page for p.N · Esc to
+  cancel", the target page is outlined and its two neighbours get a dashed
+  "suggested" outline (pairs sit next to each other). Clicking any other page
+  calls `POST /read/pages/{id}/translate` with it as the reference; clicking the
+  target does nothing; Esc, the banner's ✕, or leaving edit mode cancels. Re-run
+  it to re-translate.
+- While a request runs the page pulses (the same `busy` state as remove / move).
+  A refusal (pages don't line up, nothing to translate, upscaler not running)
+  shows the backend's `detail` verbatim in the header's error line.
+- **One at a time:** while a request runs or a preview is open, the version items
+  in every page's menu are disabled. **Accept** (`POST …/versions/accept`) records
+  the version and refetches the pages, so the reader shows it with the
+  Original switch and the menu flips (Upscale → Remove upscale; Remove
+  translation appears). **Discard** (`DELETE …/versions/preview`) deletes the
+  preview file. **Remove upscale / translation** (`DELETE …/versions`) refetches
+  too.
+- An open preview is discarded automatically when you leave edit mode, remove
+  that page, or leave the reader. Leaving edit mode or the reader while an
+  upscale / translate is still running discards its preview as soon as it
+  arrives; an Accept already in flight is left to finish (and saves).
+- The preview image is the response's `previewUrl` (freshly signed and
+  cache-busted by the backend), never re-signed via `useSignedUrls` — that caches
+  per path and would show the previous run's image.
 
 ## The two upload flows
 

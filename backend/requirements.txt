@@ -25,3 +25,7 @@ selectolax
 # read module — per-site extractors for client-rendered readers (headless Chromium).
 # After installing, also run: python -m playwright install chromium
 playwright
+
+# read module - translate-by-reference pipeline (page alignment, bubble copy)
+opencv-python-headless
+numpy
