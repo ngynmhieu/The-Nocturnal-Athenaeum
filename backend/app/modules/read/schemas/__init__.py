@@ -9,7 +9,7 @@ sits next to the responses it relates to:
     section.py   /read/mangas/{id}/sections*,     SectionCreate, SectionUpdate (req)
                  /read/sections/{id}              SectionSummary (resp)
     page.py      /read/sections/{id}/pages*       PageRecord, ReorderRequest (req)
-                                                    PageInfo (resp)
+                                                    PageInfo, PageVersionInfo (resp)
     library.py   /read/library*,                  LibraryAssetRecord, OrganizeRequest,
                  /read/*/cover/from-library         CoverFromLibraryRequest (req)
                                                     LibraryAssetInfo (resp)
@@ -25,7 +25,7 @@ Quick reference — which way does it cross the wire?
                                     OrganizeRequest, CoverFromLibraryRequest, ScrapeRequest,
                                     SeriesRequest, ImportRequest, LibraryImportRequest
     Responses (backend → client):  MangaSummary, MangaDetail, SectionSummary,
-                                    PageInfo, LibraryAssetInfo, ScrapeResult,
+                                    PageInfo, PageVersionInfo, LibraryAssetInfo, ScrapeResult,
                                     ScrapeCandidate, SeriesResult, SeriesEntryInfo
 """
 from .library import (
@@ -36,7 +36,7 @@ from .library import (
     OrganizeRequest,
 )
 from .manga import MangaCreate, MangaDetail, MangaSummary, MangaUpdate
-from .page import PageInfo, PageRecord, ReorderRequest
+from .page import PageInfo, PageRecord, PageVersionInfo, ReorderRequest
 from .scrape import (
     ImportRequest,
     LibraryImportRequest,
@@ -72,6 +72,7 @@ __all__ = [
     "MangaDetail",
     "SectionSummary",
     "PageInfo",
+    "PageVersionInfo",
     "LibraryAssetInfo",
     "ScrapeResult",
     "ScrapeCandidate",

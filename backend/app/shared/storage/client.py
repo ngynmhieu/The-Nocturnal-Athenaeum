@@ -44,6 +44,12 @@ class StorageClient:
             return
         await run_in_threadpool(self._bucket.remove, paths)
 
+    async def download(self, path: str) -> bytes:
+        return await run_in_threadpool(self._bucket.download, path)
+
+    async def move(self, src: str, dst: str) -> None:
+        await run_in_threadpool(self._bucket.move, src, dst)
+
     async def create_signed_urls(self, paths: list[str], expires_in: int = 3600) -> list[str]:
         if not paths:
             return []

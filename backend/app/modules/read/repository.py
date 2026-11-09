@@ -11,7 +11,7 @@ import uuid
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import LibraryAsset, Manga, MangaPage, MangaSection
+from .models import LibraryAsset, Manga, MangaPage, MangaPageVersion, MangaSection
 
 
 class ReadRepository:
@@ -246,6 +246,87 @@ class ReadRepository:
             .values(position=-MangaPage.position - 1)
         )
 
+    # --- page versions --------------------------------------------------------
+    # Callers resolve the page through an ownership-checked lookup first (`get_page`),
+    # like the other child-of-a-resolved-parent methods.
+
+    async def list_versions(self, page_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[MangaPageVersion]]:
+        """Versions per page, batched in one query."""
+        if not page_ids:
+            return {}
+        result = await self._session.execute(
+            select(MangaPageVersion)
+            .where(MangaPageVersion.page_id.in_(page_ids))
+            .order_by(MangaPageVersion.kind, MangaPageVersion.language)
+        )
+        grouped: dict[uuid.UUID, list[MangaPageVersion]] = {}
+        for version in result.scalars().all():
+            grouped.setdefault(version.page_id, []).append(version)
+        return grouped
+
+    async def get_version(
+        self, page_id: uuid.UUID, kind: str, language: str | None
+    ) -> MangaPageVersion | None:
+        language_clause = (
+            MangaPageVersion.language.is_(None) if language is None else MangaPageVersion.language == language
+        )
+        result = await self._session.execute(
+            select(MangaPageVersion).where(
+                MangaPageVersion.page_id == page_id, MangaPageVersion.kind == kind, language_clause
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert_version(
+        self,
+        page_id: uuid.UUID,
+        kind: str,
+        language: str | None,
+        storage_path: str,
+        width: int | None,
+        height: int | None,
+        reference_page_id: uuid.UUID | None,
+    ) -> tuple[MangaPageVersion, str | None]:
+        """Insert the (page, kind, language) version, or update it in place.
+
+        Returns the row plus the file path it replaced (None for a fresh insert) so
+        the caller can remove the orphaned object after commit.
+        """
+        version = await self.get_version(page_id, kind, language)
+        replaced_path: str | None = None
+        if version is None:
+            version = MangaPageVersion(
+                page_id=page_id, kind=kind, language=language, storage_path=storage_path,
+                width=width, height=height, reference_page_id=reference_page_id,
+            )
+            self._session.add(version)
+        else:
+            replaced_path = version.storage_path
+            version.storage_path = storage_path
+            version.width = width
+            version.height = height
+            version.reference_page_id = reference_page_id
+        await self._session.flush()
+        return version, replaced_path
+
+    async def delete_version(self, page_id: uuid.UUID, kind: str, language: str | None) -> str | None:
+        """Delete one version; returns its file path (None if there was none)."""
+        version = await self.get_version(page_id, kind, language)
+        if version is None:
+            return None
+        path = version.storage_path
+        await self._session.delete(version)
+        await self._session.flush()
+        return path
+
+    async def version_paths_for_pages(self, page_ids: list[uuid.UUID]) -> list[str]:
+        if not page_ids:
+            return []
+        result = await self._session.execute(
+            select(MangaPageVersion.storage_path).where(MangaPageVersion.page_id.in_(page_ids))
+        )
+        return [row[0] for row in result.all()]
+
     async def manga_storage_paths(self, manga_id: uuid.UUID) -> list[str]:
         """Every Storage object under a manga (cover + section covers + pages) —
         gathered before delete, since the DB cascade drops rows, not files."""
@@ -263,6 +344,10 @@ class ReadRepository:
                 select(MangaPage.storage_path).where(MangaPage.section_id.in_(section_ids))
             )
             paths.extend(row[0] for row in result.all())
+            page_ids = (
+                await self._session.execute(select(MangaPage.id).where(MangaPage.section_id.in_(section_ids)))
+            ).scalars().all()
+            paths.extend(await self.version_paths_for_pages(list(page_ids)))
         return paths
 
     async def section_storage_paths(self, section_id: uuid.UUID) -> list[str]:
@@ -275,6 +360,10 @@ class ReadRepository:
             select(MangaPage.storage_path).where(MangaPage.section_id == section_id)
         )
         paths.extend(row[0] for row in result.all())
+        page_ids = (
+            await self._session.execute(select(MangaPage.id).where(MangaPage.section_id == section_id))
+        ).scalars().all()
+        paths.extend(await self.version_paths_for_pages(list(page_ids)))
         return paths
 
     # --- library pool --------------------------------------------------------

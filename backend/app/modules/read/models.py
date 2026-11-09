@@ -2,7 +2,7 @@
 
 The tables themselves (FK into auth.users, RLS) are created by Supabase migrations
 (`supabase/migrations/*_add_mangas.sql`, `*_add_manga_sections.sql`,
-`*_add_manga_pages.sql`, `*_add_library_assets.sql`), NOT by SQLAlchemy
+`*_add_manga_pages.sql`, `*_add_library_assets.sql`, `*_add_manga_page_versions.sql`), NOT by SQLAlchemy
 `create_all`. These classes only let the backend query/insert rows. See
 `backend/docs/modules/read.md` and `supabase/docs/modules/read.md`.
 """
@@ -83,4 +83,29 @@ class LibraryAsset(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MangaPageVersion(Base):
+    """An accepted derived version of a page: its upscaled and/or translated image.
+
+    Unique per (page_id, kind, coalesce(language, '')) — that expression index lives
+    in the migration only; the repository does the null-aware lookup itself.
+    """
+
+    __tablename__ = "manga_page_versions"
+    __table_args__ = (CheckConstraint("kind in ('upscaled', 'translated')", name="manga_page_versions_kind_check"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("manga_pages.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    language: Mapped[str | None] = mapped_column(String, nullable=True)
+    storage_path: Mapped[str] = mapped_column(String, nullable=False)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reference_page_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("manga_pages.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

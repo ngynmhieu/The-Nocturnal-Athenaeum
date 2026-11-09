@@ -23,6 +23,7 @@ from ..schemas import (
     MangaUpdate,
     PageInfo,
     PageRecord,
+    PageVersionInfo,
     SectionCreate,
     SectionSummary,
     SectionUpdate,
@@ -157,7 +158,13 @@ class ReadService:
         if await self._repo.get_section(section_id, self._user_id) is None:
             return None
         pages = await self._repo.list_pages(section_id)
-        return [PageInfo.model_validate(page) for page in pages]
+        versions = await self._repo.list_versions([page.id for page in pages])
+        return [
+            PageInfo.model_validate(page).model_copy(
+                update={"versions": [PageVersionInfo.model_validate(v) for v in versions.get(page.id, [])]}
+            )
+            for page in pages
+        ]
 
     async def record_pages(
         self, section_id: uuid.UUID, records: list[PageRecord]
@@ -189,10 +196,10 @@ class ReadService:
         page = await self._repo.get_page(page_id, self._user_id)
         if page is None:
             return False
-        storage_path = page.storage_path
+        paths = [page.storage_path, *await self._repo.version_paths_for_pages([page.id])]
         await self._repo.delete_page(page)
         await self._repo.commit()
-        await self._storage.remove([storage_path])
+        await self._storage.remove(paths)
         return True
 
     # --- library pool --------------------------------------------------------
