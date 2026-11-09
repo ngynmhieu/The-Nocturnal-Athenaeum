@@ -20,6 +20,17 @@ _BUBBLE_LAYOUT = [
     (0.35, 0.82, 0.20, 0.07),
 ]
 
+# Edited-art patch in the reference, as fractions of the reference page (before the shift).
+EDITED_PATCH = (0.55, 0.28, 0.85, 0.36)
+
+
+def edited_patch_box(h: int = 1024, w: int = 610) -> tuple[int, int, int, int]:
+    """The edited-art patch as `(x0, y0, x1, y1)` in target coordinates."""
+    fx0, fy0, fx1, fy1 = EDITED_PATCH
+    rw, rh = round(w * SCALE), round(h * SCALE)
+    return (round((rw * fx0 + SHIFT_X) / SCALE), round(rh * fy0 / SCALE),
+            round((rw * fx1 + SHIFT_X) / SCALE), round(rh * fy1 / SCALE))
+
 
 def _art(seed: int, h: int, w: int, color: bool) -> np.ndarray:
     """Busy random line art: plenty of corners and edges so SIFT has features."""
@@ -79,7 +90,8 @@ def make_pair(color: bool = False):
     rh, rw = round(h * SCALE), round(w * SCALE)
     ref = cv2.resize(art, (rw, rh), interpolation=cv2.INTER_CUBIC)
     _draw_bubbles(ref, ["HELLO THERE"] * 3, text_scale=SCALE)
-    cv2.rectangle(ref, (int(rw * 0.55), int(rh * 0.28)), (int(rw * 0.85), int(rh * 0.36)),
+    fx0, fy0, fx1, fy1 = EDITED_PATCH
+    cv2.rectangle(ref, (int(rw * fx0), int(rh * fy0)), (int(rw * fx1), int(rh * fy1)),
                   (128, 128, 128), -1)  # edited art, clear of every bubble
     ref = cv2.warpAffine(ref, np.float32([[1, 0, SHIFT_X], [0, 1, 0]]), (rw, rh),
                          borderValue=(245, 245, 245))
