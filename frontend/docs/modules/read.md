@@ -164,7 +164,9 @@ end in a **preview** laid over the page (`VersionPreview`) with **Accept** and
   preview file. **Remove upscale / translation** (`DELETE …/versions`) refetches
   too.
 - An open preview is discarded automatically when you leave edit mode, remove
-  that page, or leave the reader.
+  that page, or leave the reader. Leaving edit mode or the reader while an
+  upscale / translate is still running discards its preview as soon as it
+  arrives; an Accept already in flight is left to finish (and saves).
 - The preview image is the response's `previewUrl` (freshly signed and
   cache-busted by the backend), never re-signed via `useSignedUrls` — that caches
   per path and would show the previous run's image.

@@ -163,9 +163,10 @@ export function MangaReaderPage() {
               )}
               <button
                 onClick={() => {
-                  // Leaving edit mode drops an open preview (the reader also
+                  // Leaving edit mode drops the open preview, any preview still
+                  // being generated, and the version error (the reader also
                   // ends pick-reference mode on its own).
-                  if (editing && versions.preview) void versions.discard();
+                  if (editing) versions.dismiss();
                   setEditing((e) => !e);
                 }}
                 className="flex items-center gap-1.5 rounded-md border border-[var(--owl-border)] px-3 py-1.5 text-sm text-[var(--owl-brown)] hover:bg-[var(--owl-brown-mid)]/10 transition-colors cursor-pointer"
