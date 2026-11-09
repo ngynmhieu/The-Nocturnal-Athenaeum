@@ -1,9 +1,9 @@
 """Storage client — a thin wrapper around Supabase Storage for one bucket.
 
 Built once during the app lifespan with the **service-role** key (bypasses Storage
-RLS, so it may write under any user's prefix on their behalf — used only for the
-`read` module's scrape-import path, which is the one place bytes flow through the
-backend). `storage3`'s client is synchronous, so every call runs in a threadpool to
+RLS, so it may write under any user's prefix on their behalf — used for the `read`
+module's server-side byte paths: scrape-import, and the upscale/translate versions
+flow). `storage3`'s client is synchronous, so every call runs in a threadpool to
 avoid blocking the event loop (same pattern as `AuthService.verify`).
 """
 from __future__ import annotations
@@ -37,8 +37,11 @@ class StorageClient:
         return cls(create_client(url, service_role_key, options), bucket)
 
     async def upload(self, path: str, data: bytes, content_type: str | None = None) -> None:
-        # Paths embed a fresh UUID and are never rewritten (immutable content),
+        # Most paths embed a fresh UUID and are never rewritten (immutable content),
         # so let browsers/CDN cache the object for a year instead of the 1h default.
+        # The exception is the read module's previews (`{user}/_preview/{page}-{kind}.png`),
+        # rewritten on every run: callers must hand those out via a freshly signed URL
+        # with a per-response cache-buster, never a URL cached from the path.
         file_options = {"cache-control": "31536000"}
         if content_type:
             file_options["content-type"] = content_type

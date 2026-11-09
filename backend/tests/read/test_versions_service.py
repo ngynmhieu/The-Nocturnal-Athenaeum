@@ -58,6 +58,11 @@ class FakeStorage:
             raise StorageObjectNotFound(src)
         self.objects[dst] = self.objects.pop(src)
 
+    async def create_signed_urls(self, paths: list[str], expires_in: int = 3600) -> list[str]:
+        # Deterministic, like Storage within one second (its token only changes per second):
+        # a fresh preview URL must come from the service, not from the signing.
+        return [f"http://storage.test/sign/{path}?token=fixed" for path in paths]
+
 
 class FakeUpscaler:
     def __init__(self) -> None:
@@ -213,6 +218,17 @@ async def test_preview_rerun_overwrites(svc, page, storage):
     assert first.preview_path == second.preview_path and second.preview_path in storage.objects
 
 
+async def test_each_preview_gets_a_fresh_signed_url(svc, page, ref_page):
+    # Same path every run, and the object is cached for a year: the URL must differ.
+    first = await svc.upscale_preview(page.id)
+    second = await svc.upscale_preview(page.id)
+    assert first.preview_path in first.preview_url and second.preview_path in second.preview_url
+    assert first.preview_url != second.preview_url
+    t1 = await svc.translate_preview(page.id, ref_page.id)
+    t2 = await svc.translate_preview(page.id, ref_page.id)
+    assert t1.preview_path == t2.preview_path and t1.preview_url != t2.preview_url
+
+
 async def test_translate_from_original_upscales_first(svc, page, ref_page, storage, user, upscaler):
     preview = await svc.translate_preview(page.id, ref_page.id)
     assert upscaler.calls == ["image/png"]  # 1024 < reference's 1884
@@ -327,6 +343,7 @@ def test_router_maps_refusal_and_version_errors(client, page, repo, storage, sec
 def test_router_preview_accept_remove_round_trip(client, page):
     preview = client.post(f"/read/pages/{page.id}/upscale").json()
     assert (preview["width"], preview["height"]) == (1220, 2048)
+    assert preview["preview_path"] in preview["preview_url"]
     version = client.post(f"/read/pages/{page.id}/versions/accept", json={"kind": "upscaled"})
     assert version.status_code == 200 and version.json()["kind"] == "upscaled"
     assert client.delete(f"/read/pages/{page.id}/versions?kind=upscaled").status_code == 204

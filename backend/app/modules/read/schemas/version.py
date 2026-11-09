@@ -32,10 +32,16 @@ class AcceptVersionRequest(BaseModel):
 # --- responses (backend → client) ------------------------------------------
 
 class VersionPreview(BaseModel):
-    """A not-yet-accepted result, stored at `preview_path` (sign it to show it)."""
+    """A not-yet-accepted result, stored at `preview_path`.
+
+    Show it via `preview_url`, signed fresh for every preview: the path is reused by
+    the next preview of the same page, so a URL signed from the path earlier (and
+    cached) would show the old image.
+    """
     kind: VersionKind
     language: str | None = None
     preview_path: str
+    preview_url: str
     width: int
     height: int
     reference_page_id: uuid.UUID | None = None

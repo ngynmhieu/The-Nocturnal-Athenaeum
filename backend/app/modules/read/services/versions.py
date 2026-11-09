@@ -60,8 +60,8 @@ class PageVersionService:
         original = await self._storage.download(page.storage_path)
         png = await self._upscaler.upscale(original, _content_type(page.storage_path))
         width, height = await self._dims(png)
-        path = await self._put_preview(page_id, "upscaled", png)
-        return VersionPreview(kind="upscaled", preview_path=path, width=width, height=height)
+        path, url = await self._put_preview(page_id, "upscaled", png)
+        return VersionPreview(kind="upscaled", preview_path=path, preview_url=url, width=width, height=height)
 
     async def translate_preview(self, page_id: uuid.UUID, reference_page_id: uuid.UUID) -> VersionPreview:
         """Copy the reference page's lettering onto the target, as a preview.
@@ -89,9 +89,9 @@ class PageVersionService:
 
         result = await run_in_threadpool(translate_by_reference, base, ref)
         png = await run_in_threadpool(_encode_png, result)
-        path = await self._put_preview(page_id, "translated", png)
+        path, url = await self._put_preview(page_id, "translated", png)
         return VersionPreview(
-            kind="translated", language=_TRANSLATE_LANGUAGE, preview_path=path,
+            kind="translated", language=_TRANSLATE_LANGUAGE, preview_path=path, preview_url=url,
             width=result.shape[1], height=result.shape[0], reference_page_id=reference_page_id,
         )
 
@@ -156,12 +156,21 @@ class PageVersionService:
     def _preview_path(self, page_id: uuid.UUID, kind: str) -> str:
         return f"{self._user_id}/_preview/{page_id}-{kind}.png"
 
-    async def _put_preview(self, page_id: uuid.UUID, kind: str, png: bytes) -> str:
+    async def _put_preview(self, page_id: uuid.UUID, kind: str, png: bytes) -> tuple[str, str]:
+        """Upload the preview; return its path and a freshly signed URL.
+
+        The path is fixed per (page, kind) and the object is cached for a year, so a
+        URL signed for an earlier preview would show stale bytes. Storage's token only
+        changes once a second (two signings in the same second are identical), so a
+        random `v` query parameter makes every returned URL a fresh cache key; Storage
+        ignores it.
+        """
         # Storage won't overwrite an existing object, so clear the last preview first.
         path = self._preview_path(page_id, kind)
         await self._storage.remove([path])
         await self._storage.upload(path, png, "image/png")
-        return path
+        (url,) = await self._storage.create_signed_urls([path])
+        return path, f"{url}{'&' if '?' in url else '?'}v={uuid.uuid4().hex}"
 
     async def _dims(self, data: bytes) -> tuple[int, int]:
         img = await run_in_threadpool(_decode, data)

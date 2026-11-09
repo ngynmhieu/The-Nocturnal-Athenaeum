@@ -102,7 +102,7 @@ delegates — no branching here.
 | `POST /read/library/import` | `ScrapeService.stream_import_to_library(body)` — NDJSON stream, one line per scrape candidate downloaded into the pool |
 | `POST /read/sections/{id}/pages/from-library` | `ReadService.organize_from_library(id, body, at)` — move ordered pool assets into a section; `?at=N` inserts from position N (the reader's "add page before/after") |
 | `DELETE /read/library/{id}` | `ReadService.discard_library_asset(id)` (also deletes the Storage file) |
-| `POST /read/pages/{id}/upscale` | `PageVersionService.upscale_preview(id)` → `VersionPreview` (×2 of the original) |
+| `POST /read/pages/{id}/upscale` | `PageVersionService.upscale_preview(id)` → `VersionPreview` `{kind, language, preview_path, preview_url, width, height, reference_page_id}` (×2 of the original) |
 | `POST /read/pages/{id}/translate` | `PageVersionService.translate_preview(id, body.reference_page_id)` → `VersionPreview`. 422 if the reference is the page itself or the pipeline refuses (`TranslateRefusal`); 404 if the reference isn't in the same section |
 | `POST /read/pages/{id}/versions/accept` | `PageVersionService.accept(id, kind, language, reference_page_id)` → `PageVersionInfo`; 404 when there's no preview to accept |
 | `DELETE /read/pages/{id}/versions/preview?kind=…` | `PageVersionService.discard(id, kind)` — 204 even if the preview is already gone |
@@ -195,7 +195,9 @@ The request-scoped `AsyncSession` is one connection — concurrent tasks can't
 Upscaled and translated **versions** of a page (`manga_page_versions`: at most one
 upscale, and one translation per language). Every run produces a **preview** first,
 at `{user}/_preview/{page_id}-{kind}.png`, overwritten by the next run (Storage won't
-overwrite, so the old object is removed, then the new one uploaded).
+overwrite, so the old object is removed, then the new one uploaded). Each preview
+response includes a freshly signed `preview_url`, since a URL signed earlier for the
+same path would serve the old, year-cached bytes.
 - `upscale_preview(page)` — download the **original** (never an earlier upscale), send
   it to the models service through `shared/images/` (`UpscaleClient`), upload the PNG.
 - `translate_preview(page, reference)` — both pages must be the caller's and in the
@@ -329,8 +331,8 @@ graph LR
 
 Thick (`==>`) edges are the ones that actually move image bytes — notice almost all of
 them are Browser ↔ Storage direct, with the backend only stepping into that path for
-scrape-import and cleanup-on-delete (both service-role, both called out in the bullets
-below). The thin edges are metadata-only: step 2 is just "give me a signed URL for this
+scrape-import, upscale/translate, and cleanup-on-delete (all service-role, all called
+out in the bullets below). The thin edges are metadata-only: step 2 is just "give me a signed URL for this
 path" (a request, no bytes), and the constant thing the backend actually does is the
 `Browser → Backend → Postgres` metadata line at the top.
 
@@ -338,14 +340,18 @@ path" (a request, no bytes), and the constant thing the backend actually does is
   path), then calls `POST /read/sections/{id}/pages` (into a section) or `POST
   /read/library` (into the pool) so this module records the rows. No image bytes pass
   through the backend.
-- **Scrape import:** the backend downloads + uploads server-side (the only path where
-  bytes flow through the backend), using the **service-role key** via `shared/storage/`
+- **Scrape import:** the backend downloads + uploads server-side (one of the two paths
+  where bytes flow through the backend; upscale/translate below is the other), using the **service-role key** via `shared/storage/`
   — either straight into a section (`/read/sections/{id}/import`) or into the pool
   (`/read/library/import`).
 - **Upscale / translate:** the backend downloads the page (and reference) images,
   runs them through the models service's upscaler (`shared/images/`) and/or
   `translate/`, and writes the result back (service-role): a preview under
   `{user}/_preview/`, moved to `{user}/{manga}/{section}/v-{uuid}.png` on accept.
+  The preview path is reused by every run and objects are cached for a year, so the
+  preview response carries a freshly signed `preview_url` with a random `v` parameter
+  (Storage's own token only changes once a second), so every preview is a new cache key.
+  The UI shows that URL rather than signing `preview_path` itself.
   `StorageClient.download` raises `StorageObjectNotFound` for a missing object, which
   is how accept tells "no preview" apart from a Storage failure.
 - **Organize (pool → section):** metadata-only. The page row reuses the pool object's
