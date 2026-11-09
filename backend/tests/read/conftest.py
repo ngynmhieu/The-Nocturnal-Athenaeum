@@ -31,6 +31,20 @@ def edited_patch_box(h: int = 1024, w: int = 610) -> tuple[int, int, int, int]:
     return (round((rw * fx0 + SHIFT_X) / SCALE), round(rh * fy0 / SCALE),
             round((rw * fx1 + SHIFT_X) / SCALE), round(rh * fy1 / SCALE))
 
+_FURIGANA_TEXT, _FURIGANA_SCALE = "ri", 0.3  # tiny, thin ruby-like marks
+_FURIGANA_OFFSET = (-40, -8)  # from the bubble centre, tucked against the lettering
+_FURIGANA_INK = (150, 150, 150)  # light grey: weak enough to fall under the diff threshold
+
+
+def furigana_boxes(h: int = 1024, w: int = 610) -> list[tuple[int, int, int, int]]:
+    """Boxes `(x0, y0, x1, y1)` of the target's furigana-like marks, one per bubble."""
+    (tw, th), base = cv2.getTextSize(_FURIGANA_TEXT, cv2.FONT_HERSHEY_SIMPLEX, _FURIGANA_SCALE, 1)
+    boxes = []
+    for fx, fy, _, _ in _BUBBLE_LAYOUT:
+        x, y = int(fx * w) + _FURIGANA_OFFSET[0], int(fy * h) + _FURIGANA_OFFSET[1]
+        boxes.append((x - 1, y - th - 1, x + tw + 1, y + base + 1))
+    return boxes
+
 
 def _art(seed: int, h: int, w: int, color: bool) -> np.ndarray:
     """Busy random line art: plenty of corners and edges so SIFT has features."""
@@ -86,6 +100,10 @@ def make_pair(color: bool = False):
     art = _art(7, h, w, color)
     target = art.copy()
     _draw_bubbles(target, ["AAAA"] * 3)
+    for x0, y0, _, y1 in furigana_boxes(h, w):  # present in the target only
+        cv2.putText(target, _FURIGANA_TEXT, (x0 + 1, y1 - 1 - cv2.getTextSize(
+            _FURIGANA_TEXT, cv2.FONT_HERSHEY_SIMPLEX, _FURIGANA_SCALE, 1)[1]),
+            cv2.FONT_HERSHEY_SIMPLEX, _FURIGANA_SCALE, _FURIGANA_INK, 1, cv2.LINE_AA)
 
     rh, rw = round(h * SCALE), round(w * SCALE)
     ref = cv2.resize(art, (rw, rh), interpolation=cv2.INTER_CUBIC)

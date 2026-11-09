@@ -5,7 +5,7 @@ import pytest
 from backend.app.modules.read.translate import TranslateRefusal, translate_by_reference
 from backend.app.modules.read.translate.regions import GlyphHeuristic, match_tone, text_mask
 
-from .conftest import edited_patch_box, gray, make_pair
+from .conftest import edited_patch_box, furigana_boxes, gray, make_pair
 
 
 def test_bubbles_get_reference_text(pair):
@@ -56,3 +56,11 @@ def test_text_mask_empty_when_pages_match():
     g = gray(make_pair()[0])
     mask = text_mask(g, g, np.ones_like(g, bool), GlyphHeuristic())
     assert mask.sum() == 0
+
+
+def test_furigana_marks_are_replaced():
+    target, reference, _ = make_pair()
+    out = translate_by_reference(target, reference)
+    for (x0, y0, x1, y1) in furigana_boxes():
+        assert (target[y0:y1, x0:x1] < 200).any()  # the fixture really has a mark here
+        assert out[y0:y1, x0:x1].min() >= 200  # and no ghost of it survives

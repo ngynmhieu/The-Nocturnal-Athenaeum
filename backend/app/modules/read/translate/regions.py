@@ -19,6 +19,8 @@ _MIN_GLYPHS_REF = 4
 _MIN_GLYPHS_TGT = 2
 _MIN_INK_ON_PAPER = 0.8
 _MIN_TONE_SAMPLES = 30
+_FAINT_DIFF = 20  # ink inside a text group only has to differ this much to be replaced
+_INK_MAX = 200  # darker than this counts as ink (furigana strokes are thin and grey)
 
 
 class TextClassifier(Protocol):
@@ -77,15 +79,27 @@ def text_mask(ref_gray: np.ndarray, tgt_gray: np.ndarray, covered: np.ndarray,
     group_kernel = np.ones((int(13 * k) | 1,) * 2, np.uint8)
     groups = cv2.dilate(diff, group_kernel)
 
-    mask = np.zeros(tgt_gray.shape, np.uint8)
+    accepted = np.zeros(tgt_gray.shape, np.uint8)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(groups, connectivity=8)
     for i in range(1, n):
         x, y = stats[i, cv2.CC_STAT_LEFT], stats[i, cv2.CC_STAT_TOP]
         w, h = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
         region = labels[y:y + h, x:x + w] == i
         if classifier.is_text(region, ref_gray[y:y + h, x:x + w], tgt_gray[y:y + h, x:x + w], k):
-            mask[y:y + h, x:x + w][region] = 1
+            accepted[y:y + h, x:x + w][region] = 1
     # Eroding the grouped blobs back (a morphological closing of the changed pixels)
     # keeps the gaps between glyphs filled without growing the mask past the lettering.
-    mask = cv2.erode(mask, group_kernel)
+    mask = cv2.erode(accepted, group_kernel)
+    # The open above drops thin strokes (furigana) and the threshold drops faint ones,
+    # so pick up remaining ink that differs from the reference, but only inside
+    # groups already accepted as text: this never reaches into surrounding art.
+    # Unblurred: blurring washes a 1 px grey stroke out of the ink range. The reference
+    # must be paper there: furigana sits on bubble paper, whereas a mismatch against
+    # the reference's own art is just misregistration, not lettering.
+    faint = (cv2.absdiff(ref_gray, tgt_gray) > _FAINT_DIFF) & (tgt_gray < _INK_MAX) & (ref_gray > _PAPER)
+    # Only glyph-sized specks: a long connected ink run is art, not lettering.
+    wanted = (accepted.astype(bool) & faint).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(wanted, connectivity=8)
+    small = np.flatnonzero(stats[:, cv2.CC_STAT_AREA] <= 400 * k**2)
+    mask |= (np.isin(labels, small[small > 0])).astype(np.uint8)
     return mask & covered.astype(np.uint8)
