@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { displayedImage } from "../../entities";
 import type { Page } from "../../entities";
 import type { ReaderWidth } from "../../features";
 import { PageView } from "./components/PageView";
@@ -72,6 +73,15 @@ export function Reader({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [openMenuId]);
 
+  // Pages whose original is shown instead of their accepted version (not persisted).
+  const [showOriginal, setShowOriginal] = useState<Set<string>>(() => new Set());
+  const toggleOriginal = (pageId: string) =>
+    setShowOriginal((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(pageId)) next.add(pageId);
+      return next;
+    });
+
   // The furthest-down page currently on screen; pages within the preload window
   // around it load eagerly. Observing against the viewport (root: null) works
   // both when this box scrolls (desktop) and when the whole page does (phone).
@@ -119,13 +129,24 @@ export function Reader({
     // phone the page itself scrolls, so the header just scrolls away with it.
     <div className="md:h-full md:overflow-y-auto" onScroll={onScroll}>
       <div ref={listRef} className={`mx-auto flex w-full flex-col ${WIDTH_CLASS[width]}`}>
-        {pages.map((page, index) => (
+        {pages.map((page, index) => {
+          const original = showOriginal.has(page.id);
+          const image = displayedImage(page, original);
+          // The label of the version this page would show (not the forced original).
+          const versionLabel = displayedImage(page, false).label;
+          return (
           <PageView
             key={page.id}
             page={page}
             index={index}
-            imageUrl={urls[page.storagePath]}
+            image={image}
+            imageUrl={urls[image.path]}
             eager={index >= currentIndex - PRELOAD_BEHIND && index <= currentIndex + PRELOAD_AHEAD}
+            originalToggle={
+              versionLabel === "Original"
+                ? undefined
+                : { label: versionLabel, showingOriginal: original, onToggle: () => toggleOriginal(page.id) }
+            }
           >
             {editing && onRemovePage && onAddPagesAt && (
               <PageEditOverlay
@@ -140,7 +161,8 @@ export function Reader({
               />
             )}
           </PageView>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -65,7 +65,9 @@ export function MangaReaderPage() {
     await refresh();
     setMovingId(null);
   };
-  const urls = useSignedUrls((pages ?? []).map((p) => p.storagePath));
+  const urls = useSignedUrls(
+    (pages ?? []).flatMap((p) => [p.storagePath, ...(p.versions ?? []).map((v) => v.storagePath)])
+  );
   // Non-blocking — the reader itself doesn't need the manga fetched, only its
   // title/section label for the header, so it fills in a beat after pages do.
   const { detail } = useMangaDetail(mangaId);
