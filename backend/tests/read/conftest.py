@@ -46,6 +46,24 @@ def furigana_boxes(h: int = 1024, w: int = 610) -> list[tuple[int, int, int, int
     return boxes
 
 
+def _draw_screentone(img: np.ndarray, box: tuple[int, int, int, int]) -> None:
+    """The English edition's edited area: light grey covered in regular halftone dots."""
+    x0, y0, x1, y1 = box
+    cv2.rectangle(img, (x0, y0), (x1, y1), (225, 225, 225), -1)
+    for y in range(y0 + 4, y1 - 2, 8):
+        for x in range(x0 + 4, x1 - 2, 8):
+            cv2.circle(img, (x, y), 2, (40, 40, 40), -1)
+
+
+def _draw_line_art(img: np.ndarray, box: tuple[int, int, int, int]) -> None:
+    """A few bold strokes and curves of the Japanese line art inside the edited area."""
+    x0, y0, x1, y1 = box
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+    cv2.ellipse(img, (cx, cy), ((x1 - x0) // 3, (y1 - y0) // 3), 15, 20, 300, (30, 30, 30), 3)
+    cv2.line(img, (x0 + 5, y0 + 5), (x1 - 5, cy), (30, 30, 30), 3)
+    cv2.line(img, (x0 + 5, y1 - 5), (cx, y0 + 5), (60, 60, 60), 2)
+
+
 def _art(seed: int, h: int, w: int, color: bool) -> np.ndarray:
     """Busy random line art: plenty of corners and edges so SIFT has features."""
     rng = np.random.default_rng(seed)
@@ -100,6 +118,7 @@ def make_pair(color: bool = False):
     art = _art(7, h, w, color)
     target = art.copy()
     _draw_bubbles(target, ["AAAA"] * 3)
+    _draw_line_art(target, edited_patch_box(h, w))
     for x0, y0, _, y1 in furigana_boxes(h, w):  # present in the target only
         cv2.putText(target, _FURIGANA_TEXT, (x0 + 1, y1 - 1 - cv2.getTextSize(
             _FURIGANA_TEXT, cv2.FONT_HERSHEY_SIMPLEX, _FURIGANA_SCALE, 1)[1]),
@@ -109,8 +128,7 @@ def make_pair(color: bool = False):
     ref = cv2.resize(art, (rw, rh), interpolation=cv2.INTER_CUBIC)
     _draw_bubbles(ref, ["HELLO THERE"] * 3, text_scale=SCALE)
     fx0, fy0, fx1, fy1 = EDITED_PATCH
-    cv2.rectangle(ref, (int(rw * fx0), int(rh * fy0)), (int(rw * fx1), int(rh * fy1)),
-                  (128, 128, 128), -1)  # edited art, clear of every bubble
+    _draw_screentone(ref, (int(rw * fx0), int(rh * fy0), int(rw * fx1), int(rh * fy1)))
     ref = cv2.warpAffine(ref, np.float32([[1, 0, SHIFT_X], [0, 1, 0]]), (rw, rh),
                          borderValue=(245, 245, 245))
 

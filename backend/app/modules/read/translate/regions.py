@@ -19,6 +19,8 @@ _MIN_GLYPHS_REF = 4
 _MIN_GLYPHS_TGT = 2
 _MIN_INK_ON_PAPER = 0.8
 _MIN_TONE_SAMPLES = 30
+_MIN_MEDIAN_GLYPH = 10  # k^2 px: halftone dots are a few px; real letters (even furigana) are not
+_MIN_TARGET_PAPER = 0.7  # lettering sits in a bubble: the target group is mostly paper-white
 _FAINT_DIFF = 20  # ink inside a text group only has to differ this much to be replaced
 _INK_MAX = 200  # darker than this counts as ink (furigana strokes are thin and grey)
 
@@ -32,24 +34,31 @@ class TextClassifier(Protocol):
         ...
 
 
-def _glyph_count(gray: np.ndarray, region: np.ndarray, scale: float) -> int:
+def _glyph_areas(gray: np.ndarray, region: np.ndarray, scale: float) -> np.ndarray:
     dark = ((gray < _DARK) & region).astype(np.uint8)
     n, _, stats, _ = cv2.connectedComponentsWithStats(dark, connectivity=8)
-    lo, hi = 3 * scale**2, 400 * scale**2
-    return sum(1 for i in range(1, n) if lo <= stats[i, cv2.CC_STAT_AREA] <= hi)
+    areas = stats[1:n, cv2.CC_STAT_AREA]
+    return areas[(areas >= 3 * scale**2) & (areas <= 400 * scale**2)]
 
 
 class GlyphHeuristic:
-    """Lettering is a cluster of small dark glyphs on paper-white or ink-black pixels."""
+    """Lettering is a cluster of letter-sized dark glyphs on bubble paper."""
 
     def is_text(self, region: np.ndarray, ref_gray: np.ndarray, tgt_gray: np.ndarray,
                 scale: float) -> bool:
-        if _glyph_count(ref_gray, region, scale) < _MIN_GLYPHS_REF:
+        ref_glyphs = _glyph_areas(ref_gray, region, scale)
+        if len(ref_glyphs) < _MIN_GLYPHS_REF:
             return False
-        if _glyph_count(tgt_gray, region, scale) < _MIN_GLYPHS_TGT:
+        if len(_glyph_areas(tgt_gray, region, scale)) < _MIN_GLYPHS_TGT:
             return False
         px = ref_gray[region]
-        return float(np.mean((px > _PAPER) | (px < _DARK))) > _MIN_INK_ON_PAPER
+        if float(np.mean((px > _PAPER) | (px < _DARK))) <= _MIN_INK_ON_PAPER:
+            return False
+        # Screentone: the edition's edited art is covered in halftone dots, which pass the
+        # tests above as "glyphs". Dots are tiny, and they sit on art, not on bubble paper.
+        if float(np.median(ref_glyphs)) < _MIN_MEDIAN_GLYPH * scale**2:
+            return False
+        return float(np.mean(tgt_gray[region] > _PAPER)) >= _MIN_TARGET_PAPER
 
 
 def match_tone(reference_gray_warped: np.ndarray, target_gray: np.ndarray,
