@@ -17,16 +17,21 @@ sits next to the responses it relates to:
                                                     ImportRequest, LibraryImportRequest (req)
                                                     ScrapeResult, ScrapeCandidate,
                                                     SeriesResult, SeriesEntryInfo (resp)
+    version.py   /read/pages/{id}/upscale,        TranslateRequest, AcceptVersionRequest (req)
+                 /read/pages/{id}/translate,       VersionPreview (resp)
+                 /read/pages/{id}/versions*
 
 Quick reference — which way does it cross the wire?
 
     Requests  (client → backend):  MangaCreate, MangaUpdate, SectionCreate, SectionUpdate,
                                     PageRecord, ReorderRequest, LibraryAssetRecord,
                                     OrganizeRequest, CoverFromLibraryRequest, ScrapeRequest,
-                                    SeriesRequest, ImportRequest, LibraryImportRequest
+                                    SeriesRequest, ImportRequest, LibraryImportRequest,
+                                    TranslateRequest, AcceptVersionRequest
     Responses (backend → client):  MangaSummary, MangaDetail, SectionSummary,
                                     PageInfo, PageVersionInfo, LibraryAssetInfo, ScrapeResult,
-                                    ScrapeCandidate, SeriesResult, SeriesEntryInfo
+                                    ScrapeCandidate, SeriesResult, SeriesEntryInfo,
+                                    VersionPreview
 """
 from .library import (
     CoverFromLibraryRequest,
@@ -49,6 +54,7 @@ from .scrape import (
     SeriesResult,
 )
 from .section import SectionCreate, SectionSummary, SectionUpdate
+from .version import AcceptVersionRequest, TranslateRequest, VersionKind, VersionPreview
 
 __all__ = [
     # --- requests (client → backend) ---
@@ -67,6 +73,9 @@ __all__ = [
     "ImportRequest",
     "PageSize",
     "LibraryImportRequest",
+    "TranslateRequest",
+    "AcceptVersionRequest",
+    "VersionKind",
     # --- responses (backend → client) ---
     "MangaSummary",
     "MangaDetail",
@@ -78,4 +87,5 @@ __all__ = [
     "ScrapeCandidate",
     "SeriesResult",
     "SeriesEntryInfo",
+    "VersionPreview",
 ]

@@ -1,12 +1,15 @@
 """HTTP routes for the read module — thin orchestration only."""
 import uuid
+from contextlib import contextmanager
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from .dependencies import get_read_service, get_scrape_service
+from backend.app.shared.images import UpscaleRejected, UpscaleUnavailable
+from .dependencies import get_read_service, get_scrape_service, get_version_service
 from .extractors import ExtractorError
 from .schemas import (
+    AcceptVersionRequest,
     CoverFromLibraryRequest,
     ImportRequest,
     LibraryAssetInfo,
@@ -19,6 +22,7 @@ from .schemas import (
     OrganizeRequest,
     PageInfo,
     PageRecord,
+    PageVersionInfo,
     ReorderRequest,
     ScrapeRequest,
     ScrapeResult,
@@ -27,8 +31,14 @@ from .schemas import (
     SectionUpdate,
     SeriesRequest,
     SeriesResult,
+    TranslateRequest,
+    VersionKind,
+    VersionPreview,
 )
-from .services import ReadService, ScrapeService
+from .services import PageVersionService, ReadService, ScrapeService, VersionError
+from .translate import TranslateRefusal
+
+_UPSCALER_DOWN = "The upscaler isn't running. Start the models service and try again."
 
 router = APIRouter(prefix="/read", tags=["read"])
 
@@ -159,6 +169,66 @@ async def reorder_pages(
 async def delete_page(page_id: uuid.UUID, service: ReadService = Depends(get_read_service)):
     if not await service.delete_page(page_id):
         raise HTTPException(status_code=404, detail="Page not found")
+
+
+# --- page versions (upscaled / translated) ------------------------------------
+
+@contextmanager
+def _version_errors():
+    """Map the versions service's refusals to HTTP — the one place they're translated."""
+    try:
+        yield
+    except VersionError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message)
+    except TranslateRefusal as exc:
+        raise HTTPException(status_code=422, detail=exc.message)
+    except UpscaleRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except UpscaleUnavailable:
+        raise HTTPException(status_code=503, detail=_UPSCALER_DOWN)
+
+
+@router.post("/pages/{page_id}/upscale", response_model=VersionPreview)
+async def upscale_page(page_id: uuid.UUID, service: PageVersionService = Depends(get_version_service)):
+    with _version_errors():
+        return await service.upscale_preview(page_id)
+
+
+@router.post("/pages/{page_id}/translate", response_model=VersionPreview)
+async def translate_page(
+    page_id: uuid.UUID, body: TranslateRequest, service: PageVersionService = Depends(get_version_service)
+):
+    with _version_errors():
+        return await service.translate_preview(page_id, body.reference_page_id)
+
+
+@router.post("/pages/{page_id}/versions/accept", response_model=PageVersionInfo)
+async def accept_version(
+    page_id: uuid.UUID, body: AcceptVersionRequest, service: PageVersionService = Depends(get_version_service)
+):
+    with _version_errors():
+        return await service.accept(page_id, body.kind, body.language, body.reference_page_id)
+
+
+@router.delete("/pages/{page_id}/versions/preview", status_code=204)
+async def discard_version_preview(
+    page_id: uuid.UUID,
+    kind: VersionKind = Query(...),
+    service: PageVersionService = Depends(get_version_service),
+):
+    with _version_errors():
+        await service.discard(page_id, kind)
+
+
+@router.delete("/pages/{page_id}/versions", status_code=204)
+async def remove_version(
+    page_id: uuid.UUID,
+    kind: VersionKind = Query(...),
+    language: str | None = Query(default=None),
+    service: PageVersionService = Depends(get_version_service),
+):
+    with _version_errors():
+        await service.remove(page_id, kind, language)
 
 
 # --- scrape + import --------------------------------------------------------

@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import httpx
 from fastapi.concurrency import run_in_threadpool
+from storage3.exceptions import StorageApiError
 from supabase import Client, ClientOptions, create_client
+
+
+class StorageObjectNotFound(Exception):
+    """The requested object doesn't exist in the bucket."""
 
 
 class StorageClient:
@@ -45,7 +50,12 @@ class StorageClient:
         await run_in_threadpool(self._bucket.remove, paths)
 
     async def download(self, path: str) -> bytes:
-        return await run_in_threadpool(self._bucket.download, path)
+        try:
+            return await run_in_threadpool(self._bucket.download, path)
+        except StorageApiError as exc:
+            if _is_not_found(exc):
+                raise StorageObjectNotFound(path) from exc
+            raise
 
     async def move(self, src: str, dst: str) -> None:
         await run_in_threadpool(self._bucket.move, src, dst)
@@ -55,3 +65,9 @@ class StorageClient:
             return []
         responses = await run_in_threadpool(self._bucket.create_signed_urls, paths, expires_in)
         return [response["signedURL"] for response in responses]
+
+
+def _is_not_found(exc: StorageApiError) -> bool:
+    # Storage reports a missing object as `{"statusCode": "404", "error": "not_found"}`
+    # inside an HTTP 400 or 404, depending on the server version.
+    return str(exc.status) == "404" or str(exc.code).lower() in ("not_found", "nosuchkey")
