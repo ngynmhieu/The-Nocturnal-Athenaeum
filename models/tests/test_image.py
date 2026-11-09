@@ -42,3 +42,32 @@ def test_upscale_endpoint_rejects_non_image():
     client = TestClient(create_app())
     r = client.post("/v1/images/upscale", content=b"hello", headers={"Content-Type": "image/png"})
     assert r.status_code == 400 and r.json()["detail"] == "Not a readable image."
+
+
+def test_weights_failure_surfaces_as_503(monkeypatch):
+    from models.app.modules.image import manager as mgr
+    from models.app.modules.image.manager import ModelUnavailableError, manager
+
+    def boom(*a, **k):
+        raise ModelUnavailableError("Could not obtain weights")
+    monkeypatch.setattr(manager, "upscale", boom)
+    import cv2
+    ok, png = cv2.imencode(".png", np.zeros((4, 4, 3), np.uint8))
+    r = TestClient(create_app()).post("/v1/images/upscale", content=png.tobytes(),
+                                      headers={"Content-Type": "image/png"})
+    assert r.status_code == 503 and "weights" in r.json()["detail"]
+
+
+def test_download_sha_mismatch_is_not_a_client_error(tmp_path, monkeypatch):
+    from models.app.modules.image import manager as mgr
+    monkeypatch.setattr(mgr, "cache_dir", lambda: tmp_path)
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def iter_bytes(self): return iter([b"junk"])
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+    monkeypatch.setattr(mgr.httpx, "stream", lambda *a, **k: FakeResp())
+    m = UpscalerManager(load_configs())
+    with pytest.raises(mgr.ModelUnavailableError, match="sha256"):
+        m.upscale(None, np.zeros((4, 4, 3), np.uint8))

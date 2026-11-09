@@ -66,3 +66,7 @@ is tight, set `tile` (e.g. `256`) to bound memory.
 - `400` — `{"detail": "Not a readable image."}` (or unknown model id).
 
 Inference runs under one lock, so concurrent requests queue.
+
+Server-side failures (weights download/sha256 failure, PNG encode failure) raise
+`ModelUnavailableError` and return `503` with a clear `detail`; only decode errors
+and unknown model ids are `400`.

@@ -25,6 +25,10 @@ from .network import SRVGGNetCompact
 logger = logging.getLogger(__name__)
 
 
+class ModelUnavailableError(RuntimeError):
+    """Server-side failure: weights could not be fetched/verified, or output encoding failed."""
+
+
 def cache_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA")
     root = Path(base) if base else Path.home() / ".cache"
@@ -70,16 +74,16 @@ class UpscalerManager:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".part")
         logger.info("Downloading %s ...", cfg.weights_url)
-        with httpx.stream("GET", cfg.weights_url, follow_redirects=True, timeout=120) as r:
-            r.raise_for_status()
-            with open(tmp, "wb") as f:
-                for chunk in r.iter_bytes():
-                    f.write(chunk)
         try:
+            with httpx.stream("GET", cfg.weights_url, follow_redirects=True, timeout=120) as r:
+                r.raise_for_status()
+                with open(tmp, "wb") as f:
+                    for chunk in r.iter_bytes():
+                        f.write(chunk)
             verify_weights(tmp, cfg.sha256)
-        except ValueError:
+        except (httpx.HTTPError, OSError, ValueError) as e:
             tmp.unlink(missing_ok=True)
-            raise
+            raise ModelUnavailableError(f"Could not obtain weights for '{cfg.id}': {e}") from e
         tmp.replace(path)
         return path
 

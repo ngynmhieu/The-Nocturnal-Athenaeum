@@ -2,7 +2,7 @@
 import cv2
 import numpy as np
 
-from .manager import UpscalerManager
+from .manager import ModelUnavailableError, UpscalerManager
 
 
 class ImageService:
@@ -16,5 +16,5 @@ class ImageService:
         out = self._manager.upscale(model, img)
         ok, buf = cv2.imencode(".png", out)
         if not ok:
-            raise ValueError("Could not encode the upscaled image.")
+            raise ModelUnavailableError("Could not encode the upscaled image.")
         return buf.tobytes()
