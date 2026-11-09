@@ -194,11 +194,17 @@ async def test_accept_replaces_old_version_and_deletes_its_file(svc, page, stora
     assert first.storage_path in storage.removed and second.storage_path in storage.objects
 
 
-async def test_translate_starts_from_accepted_upscale(svc, page, ref_page, upscaler):
+async def test_translate_starts_from_accepted_upscale(svc, repo, storage, section, user, page, images, upscaler):
+    # A reference taller than the accepted upscale (2048): the upscale is still used as is,
+    # never upscaled again (spec: "instead of upscaling again").
+    big = cv2.resize(cv2.imdecode(np.frombuffer(images[1], np.uint8), cv2.IMREAD_COLOR), None, fx=1.2, fy=1.2)
+    ref = _add_page(repo, storage, section, user, _png(big), 0)
+    assert big.shape[0] > 2048
     await svc.upscale_preview(page.id); await svc.accept(page.id, "upscaled", None, None)
     upscaler.calls.clear()
-    await svc.translate_preview(page.id, ref_page.id)
-    assert upscaler.calls == []  # base is already large enough
+    preview = await svc.translate_preview(page.id, ref.id)
+    assert upscaler.calls == []
+    assert preview.height == 2048
 
 
 # --- more behaviour ------------------------------------------------------------
@@ -257,8 +263,7 @@ async def test_unknown_page_is_404(svc):
         assert e.value.status == 404
 
 
-async def test_undecodable_original_is_422(svc, repo, storage, section, user, upscaler):
-    upscaler.calls.clear()
+async def test_undecodable_original_is_422(svc, repo, storage, section, user):
     bad = _add_page(repo, storage, section, user, b"not an image", 5)
     ref = _add_page(repo, storage, section, user, b"also not", 6)
     with pytest.raises(VersionError) as e:
@@ -348,3 +353,73 @@ def test_router_preview_accept_remove_round_trip(client, page):
     assert version.status_code == 200 and version.json()["kind"] == "upscaled"
     assert client.delete(f"/read/pages/{page.id}/versions?kind=upscaled").status_code == 204
     assert client.delete(f"/read/pages/{page.id}/versions/preview?kind=bogus").status_code == 422
+
+
+# --- foreign storage paths ------------------------------------------------------------
+
+def _foreign(storage, data: bytes) -> str:
+    path = f"{uuid.uuid4()}/someone-elses/page.png"
+    storage.objects[path] = data
+    return path
+
+
+async def test_upscale_refuses_page_outside_own_prefix(svc, page, storage, upscaler):
+    page.storage_path = _foreign(storage, b"secret")
+    with pytest.raises(VersionError) as e:
+        await svc.upscale_preview(page.id)
+    assert e.value.status == 404 and upscaler.calls == []
+
+
+async def test_translate_refuses_foreign_original_reference_and_version(
+    svc, repo, page, ref_page, storage, upscaler, images
+):
+    good = page.storage_path
+    page.storage_path = _foreign(storage, images[0])
+    with pytest.raises(VersionError) as e:
+        await svc.translate_preview(page.id, ref_page.id)
+    assert e.value.status == 404
+    page.storage_path = good
+
+    ref_page.storage_path = _foreign(storage, images[1])
+    with pytest.raises(VersionError) as e:
+        await svc.translate_preview(page.id, ref_page.id)
+    assert e.value.status == 404
+
+    repo.versions[(page.id, "upscaled", None)] = SimpleNamespace(
+        id=uuid.uuid4(), storage_path=_foreign(storage, images[0]))
+    with pytest.raises(VersionError) as e:
+        await svc.translate_preview(page.id, ref_page.id)
+    assert e.value.status == 404
+    assert upscaler.calls == []
+
+
+async def test_remove_does_not_delete_foreign_object(svc, repo, page, storage):
+    foreign = _foreign(storage, b"secret")
+    repo.versions[(page.id, "upscaled", None)] = SimpleNamespace(id=uuid.uuid4(), storage_path=foreign)
+    await svc.remove(page.id, "upscaled", None)
+    assert (page.id, "upscaled", None) not in repo.versions
+    assert foreign in storage.objects and foreign not in storage.removed
+
+
+async def test_accept_does_not_delete_foreign_replaced_object(svc, repo, page, storage):
+    foreign = _foreign(storage, b"secret")
+    repo.versions[(page.id, "upscaled", None)] = SimpleNamespace(id=uuid.uuid4(), storage_path=foreign)
+    await svc.upscale_preview(page.id)
+    version = await svc.accept(page.id, "upscaled", None, None)
+    assert version.storage_path in storage.objects and foreign in storage.objects
+
+
+# --- post-commit cleanup failures ------------------------------------------------------------
+
+async def test_failed_cleanup_after_commit_does_not_fail_accept_or_remove(svc, page, storage):
+    await svc.upscale_preview(page.id)
+    await svc.accept(page.id, "upscaled", None, None)
+    await svc.upscale_preview(page.id)
+
+    async def boom(paths):
+        raise RuntimeError("storage down")
+
+    storage.remove = boom
+    version = await svc.accept(page.id, "upscaled", None, None)  # replaces the first: cleanup raises
+    assert version.kind == "upscaled"
+    await svc.remove(page.id, "upscaled", None)  # row gone, file cleanup raises: still fine

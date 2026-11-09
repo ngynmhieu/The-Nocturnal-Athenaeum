@@ -21,10 +21,10 @@ const SETTLE_MS = 350;
  *  nearly visible, so pages would pop in mid-scroll. */
 const PRELOAD_AHEAD = 5;
 const PRELOAD_BEHIND = 1;
-/** The strip's width per preference. Phones always read full width — half a
- *  phone screen is too small to read — so only md+ screens narrow it. */
 /** Pages at least this tall are already sharp enough — no Upscale item. */
 const UPSCALE_MAX_HEIGHT = 1600;
+/** The strip's width per preference. Phones always read full width — half a
+ *  phone screen is too small to read — so only md+ screens narrow it. */
 const WIDTH_CLASS: Record<ReaderWidth, string> = {
   full: "",
   "three-quarters": "md:w-3/4",

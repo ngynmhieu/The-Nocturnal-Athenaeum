@@ -13,6 +13,7 @@ the threadpool, off the event loop.
 from __future__ import annotations
 
 import asyncio
+import logging
 import mimetypes
 import uuid
 
@@ -26,6 +27,9 @@ from backend.app.shared.storage import StorageClient, StorageObjectNotFound
 from ..repository import ReadRepository
 from ..schemas import PageVersionInfo, VersionPreview
 from ..translate import translate_by_reference
+from .read import owns_path
+
+logger = logging.getLogger(__name__)
 
 _TRANSLATE_LANGUAGE = "en"  # translate-by-reference always targets English for now
 
@@ -57,7 +61,7 @@ class PageVersionService:
     async def upscale_preview(self, page_id: uuid.UUID) -> VersionPreview:
         """Upscale the **original** image (never an earlier upscale) into a preview."""
         page = await self._own_page(page_id)
-        original = await self._storage.download(page.storage_path)
+        original = await self._storage.download(self._own_path(page.storage_path))
         png = await self._upscaler.upscale(original, _content_type(page.storage_path))
         width, height = await self._dims(png)
         path, url = await self._put_preview(page_id, "upscaled", png)
@@ -66,9 +70,9 @@ class PageVersionService:
     async def translate_preview(self, page_id: uuid.UUID, reference_page_id: uuid.UUID) -> VersionPreview:
         """Copy the reference page's lettering onto the target, as a preview.
 
-        Starts from the accepted upscale when there is one, else the original —
-        upscaled first unless it's already at least as tall as the reference, so the
-        reference's lettering is barely resized. `TranslateRefusal` propagates.
+        Starts from the accepted upscale when there is one, as is. Otherwise from the
+        original, upscaled first unless it's already at least as tall as the reference,
+        so the reference's lettering is barely resized. `TranslateRefusal` propagates.
         """
         page = await self._own_page(page_id)
         if reference_page_id == page_id:
@@ -78,12 +82,13 @@ class PageVersionService:
             raise VersionError(404, "Reference page not found in this section")
 
         upscaled = await self._repo.get_version(page_id, "upscaled", None)
-        base_path = upscaled.storage_path if upscaled is not None else page.storage_path
+        base_path = self._own_path(upscaled.storage_path if upscaled is not None else page.storage_path)
+        ref_path = self._own_path(reference.storage_path)
         base_bytes, ref_bytes = await asyncio.gather(
-            self._storage.download(base_path), self._storage.download(reference.storage_path)
+            self._storage.download(base_path), self._storage.download(ref_path)
         )
         base, ref = await run_in_threadpool(_decode, base_bytes), await run_in_threadpool(_decode, ref_bytes)
-        if base.shape[0] < ref.shape[0]:
+        if upscaled is None and base.shape[0] < ref.shape[0]:
             upscaled_bytes = await self._upscaler.upscale(base_bytes, _content_type(base_path))
             base = await run_in_threadpool(_decode, upscaled_bytes)
 
@@ -128,7 +133,7 @@ class PageVersionService:
             await self._storage.remove([final_path])  # don't leave an unrecorded file behind
             raise
         if replaced_path:
-            await self._storage.remove([replaced_path])
+            await self._remove_quietly(replaced_path)
         return PageVersionInfo.model_validate(version)
 
     async def discard(self, page_id: uuid.UUID, kind: str) -> None:
@@ -143,7 +148,7 @@ class PageVersionService:
         if path is None:
             raise VersionError(404, "Version not found")
         await self._repo.commit()
-        await self._storage.remove([path])
+        await self._remove_quietly(path)
 
     # --- helpers --------------------------------------------------------
 
@@ -152,6 +157,31 @@ class PageVersionService:
         if page is None:
             raise VersionError(404, _PAGE_NOT_FOUND)
         return page
+
+    def _own_path(self, storage_path: str) -> str:
+        """Storage is read with the service role, so never trust a stored path blindly.
+
+        RLS on the version/page rows checks page ownership, not where the path points;
+        a path outside `{user_id}/` is treated as the page not existing (404).
+        """
+        if not owns_path(self._user_id, storage_path):
+            logger.warning("Refusing %r: outside user %s's prefix", storage_path, self._user_id)
+            raise VersionError(404, _PAGE_NOT_FOUND)
+        return storage_path
+
+    async def _remove_quietly(self, storage_path: str) -> None:
+        """Delete a file after its row change has committed.
+
+        A failure leaves an orphan file, not a failed request — the change is saved —
+        and a path outside the user's prefix is skipped, never deleted.
+        """
+        if not owns_path(self._user_id, storage_path):
+            logger.warning("Not removing %r: outside user %s's prefix", storage_path, self._user_id)
+            return
+        try:
+            await self._storage.remove([storage_path])
+        except Exception:
+            logger.exception("Couldn't remove %r after commit; orphaned", storage_path)
 
     def _preview_path(self, page_id: uuid.UUID, kind: str) -> str:
         return f"{self._user_id}/_preview/{page_id}-{kind}.png"

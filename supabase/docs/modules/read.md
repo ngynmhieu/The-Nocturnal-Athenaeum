@@ -268,7 +268,8 @@ owner so one RLS rule on `storage.objects` enforces ownership:
 ```
 manga/{user_id}/{manga_id}/{section_id}/{position}-{uuid}.{ext}   ← a page in a series
 manga/{user_id}/_pool/{uuid}.{ext}                               ← an unassigned pool asset
-manga/{user_id}/_preview/{uuid}.{ext}                            ← a not-yet-accepted upscale/translate preview
+manga/{user_id}/{manga_id}/{section_id}/v-{uuid}.png            ← an accepted upscale/translate version of a page
+manga/{user_id}/_preview/{page_id}-{kind}.png                    ← a not-yet-accepted preview (overwritten by the next run)
         ▲ first path segment = owner (the only segment RLS checks)
 ```
 

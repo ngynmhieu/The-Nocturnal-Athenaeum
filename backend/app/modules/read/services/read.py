@@ -5,6 +5,7 @@ role where auth.uid() is not populated) — every query is scoped to `user.id`. 
 manga/section deletes and pool discards, the corresponding objects are removed from
 the `manga` bucket via `shared/storage/` (the DB cascade drops rows only, not files).
 """
+import logging
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -29,6 +30,13 @@ from ..schemas import (
     SectionUpdate,
 )
 from .library_stream import stream_collect
+
+logger = logging.getLogger(__name__)
+
+
+def owns_path(user_id: uuid.UUID, storage_path: str) -> bool:
+    """Whether a Storage path sits under the user's own prefix (`{user_id}/…`)."""
+    return storage_path.startswith(f"{user_id}/")
 
 
 class ReadService:
@@ -199,7 +207,11 @@ class ReadService:
         paths = [page.storage_path, *await self._repo.version_paths_for_pages([page.id])]
         await self._repo.delete_page(page)
         await self._repo.commit()
-        await self._storage.remove(paths)
+        # Service-role removal: a row a user wrote through RLS could name someone else's object.
+        own = [path for path in paths if owns_path(self._user_id, path)]
+        for path in set(paths) - set(own):
+            logger.warning("Not removing %r: outside user %s's prefix", path, self._user_id)
+        await self._storage.remove(own)
         return True
 
     # --- library pool --------------------------------------------------------
