@@ -8,6 +8,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .modules.image import router as image_router
 from .modules.llm import router as llm_router
 from .modules.llm.manager import manager
 
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(llm_router)
+    app.include_router(image_router)
 
     @app.get("/")
     async def root():

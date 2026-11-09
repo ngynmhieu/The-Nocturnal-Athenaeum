@@ -23,3 +23,11 @@ huggingface-hub
 # Service / API
 fastapi>=0.95.0
 uvicorn[standard]>=0.22.0
+
+# Image module (Real-ESRGAN upscaler). PyPI torch is CPU-only on Windows, which is
+# what the upscaler runs on (the GPU is held by the LLM). The net is a small plain
+# PyTorch module, so no basicsr/realesrgan packages are needed.
+torch
+numpy
+opencv-python-headless
+httpx

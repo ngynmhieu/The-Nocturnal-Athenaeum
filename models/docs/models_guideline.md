@@ -77,9 +77,18 @@ models/
             ├── dependencies.py      #   get_llm_service / get_manager
             └── models/              #   DATA: one JSON file per LLM model
                 └── qwen3.8-27b.json
+        └── image/                   # ← the image model type (Real-ESRGAN upscaler)
+            ├── network.py           #   SRVGGNetCompact (PyTorch)
+            ├── manager.py           #   lazy weights download + sha256 + inference (CPU)
+            ├── service.py / router.py / dependencies.py / config.py
+            └── models/              #   DATA: one JSON file per image model
+                └── realesr-animevideov3.json
 ```
 
-A second model type later is a sibling module with the same shape, e.g.
+**Two model types now:** `llm` (GPU, llama.cpp, loaded at startup) and `image`
+(CPU, PyTorch, weights fetched lazily on first request, endpoint
+`POST /v1/images/upscale`). See [`modules/image.md`](modules/image.md). Further
+types are sibling modules with the same shape, e.g.
 `modules/embedding/` (its own `manager.py`, `models/`, `router.py`). Anything that
 becomes genuinely cross-module (e.g. a GPU residency coordinator shared by two
 types) moves to `app/shared/` **when that need appears** — not before.
