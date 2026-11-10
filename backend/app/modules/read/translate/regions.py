@@ -13,13 +13,17 @@ import cv2
 import numpy as np
 
 _DIFF_THRESHOLD = 45  # on 3x3-blurred images
+_SHARP_DIFF = 40  # black-hat (thin dark strokes vs. their local background)
+_SHARP_KERNEL = 9  # k px: wider than lettering strokes, much narrower than steam
 _DARK = 110  # glyph ink
 _PAPER = 200  # bubble paper
 _MIN_GLYPHS_REF = 4
 _MIN_GLYPHS_TGT = 2
 _MIN_INK_ON_PAPER = 0.8
 _MIN_TONE_SAMPLES = 30
-_MIN_MEDIAN_GLYPH = 10  # k^2 px: halftone dots are a few px; real letters (even furigana) are not
+_MIN_LETTER_AREA = 10  # k^2 px: halftone dots are a few px; real letters (even furigana) are not
+_MIN_LETTERS = 2  # letter-sized marks in the reference group
+_MIN_LETTER_SHARE = 0.3  # of its marks: "MM..." is 2 letters + 3 dots; halftone is ~all dots
 _MIN_TARGET_PAPER = 0.7  # lettering sits in a bubble: the target group is mostly paper-white
 _FAINT_DIFF = 20  # ink inside a text group only has to differ this much to be replaced
 _INK_MAX = 200  # darker than this counts as ink (furigana strokes are thin and grey)
@@ -56,7 +60,10 @@ class GlyphHeuristic:
             return False
         # Screentone: the edition's edited art is covered in halftone dots, which pass the
         # tests above as "glyphs". Dots are tiny, and they sit on art, not on bubble paper.
-        if float(np.median(ref_glyphs)) < _MIN_MEDIAN_GLYPH * scale**2:
+        # Judge by the share of letter-sized marks, not the median: small lettering such
+        # as "MM..." has dots of its own that drag the median down to dot size.
+        letters = ref_glyphs >= _MIN_LETTER_AREA * scale**2
+        if int(letters.sum()) < _MIN_LETTERS or float(letters.mean()) < _MIN_LETTER_SHARE:
             return False
         return float(np.mean(tgt_gray[region] > _PAPER)) >= _MIN_TARGET_PAPER
 
@@ -74,6 +81,14 @@ def match_tone(reference_gray_warped: np.ndarray, target_gray: np.ndarray,
     return np.maximum.accumulate(lut)
 
 
+def _sharp_ink(gray: np.ndarray, scale: float) -> np.ndarray:
+    """How much darker each pixel is than its local background (a black-hat): thin
+    strokes stand out, soft shading and steam come out near zero."""
+    size = int(_SHARP_KERNEL * scale) | 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+    return cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
+
+
 def text_mask(ref_gray: np.ndarray, tgt_gray: np.ndarray, covered: np.ndarray,
               classifier: TextClassifier | None = None) -> np.ndarray:
     """uint8 0/1 mask (target size) of the changed groups the classifier calls lettering."""
@@ -82,7 +97,13 @@ def text_mask(ref_gray: np.ndarray, tgt_gray: np.ndarray, covered: np.ndarray,
     ref_b = cv2.GaussianBlur(ref_gray, (3, 3), 0)
     tgt_b = cv2.GaussianBlur(tgt_gray, (3, 3), 0)
 
-    diff = ((cv2.absdiff(ref_b, tgt_b) > _DIFF_THRESHOLD) & covered).astype(np.uint8)
+    # Lettering changes both the brightness and the sharp ink. Steam an edition paints
+    # over the art changes brightness but has no sharp edges; tiny line-art differences
+    # between the two scans are sharp but barely change brightness. Requiring both keeps
+    # either from merging with a nearby bubble or passing as one.
+    plain = cv2.absdiff(ref_b, tgt_b) > _DIFF_THRESHOLD
+    sharp = cv2.absdiff(_sharp_ink(ref_gray, k), _sharp_ink(tgt_gray, k)) > _SHARP_DIFF
+    diff = (plain & sharp & covered).astype(np.uint8)
     size = max(1, int(2 * k))
     diff = cv2.morphologyEx(diff, cv2.MORPH_OPEN, np.ones((size, size), np.uint8))
     group_kernel = np.ones((int(13 * k) | 1,) * 2, np.uint8)

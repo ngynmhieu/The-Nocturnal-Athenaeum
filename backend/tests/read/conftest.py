@@ -140,6 +140,78 @@ def make_pair(color: bool = False):
     return target, ref, bubbles
 
 
+# Soft steam the English edition painted over the art, as (centre x, centre y, half-width,
+# half-height) fractions of the page. It runs right up against bubble 3.
+STEAM = (0.62, 0.84, 0.20, 0.10)
+_SMALL_LETTERING = "MM..."  # bubble 2 of the steam pair: small letters plus tiny dots
+
+
+def steam_box(h: int = 1024, w: int = 610) -> tuple[int, int, int, int]:
+    """The steam cloud's bounding box `(x0, y0, x1, y1)`."""
+    fx, fy, fw, fh = STEAM
+    return int((fx - fw) * w), int((fy - fh) * h), int((fx + fw) * w), int((fy + fh) * h)
+
+
+def _draw_steam(img: np.ndarray) -> None:
+    """A soft, blurry white cloud over the art: no outline, no sharp edges."""
+    h, w = img.shape[:2]
+    fx, fy, fw, fh = STEAM
+    cloud = np.zeros((h, w), np.float32)
+    cv2.ellipse(cloud, (int(fx * w), int(fy * h)), (int(fw * w * 0.8), int(fh * h * 0.8)),
+                0, 0, 360, 1.0, -1)
+    cloud = cv2.GaussianBlur(cloud, (0, 0), sigmaX=fw * w * 0.25)[..., None]
+    img[:] = (img * (1 - 0.9 * cloud) + 240 * 0.9 * cloud).astype(np.uint8)
+
+
+def _draw_skin(img: np.ndarray) -> None:
+    """Where the steam goes: pale skin with fine grey hatching and sweat drops, the
+    kind of near-white art with letter-sized dark marks that the steam half-hides."""
+    x0, y0, x1, y1 = steam_box(*img.shape[:2])
+    cv2.rectangle(img, (x0, y0), (x1, y1), (238, 238, 238), -1)
+    rng = np.random.default_rng(11)
+    for _ in range(60):  # short hatch strokes
+        x, y = int(rng.integers(x0, x1 - 20)), int(rng.integers(y0, y1 - 10))
+        cv2.line(img, (x, y), (x + 14, y + 8), (120, 120, 120), 1, cv2.LINE_AA)
+    for _ in range(60):  # sweat drops
+        x, y = int(rng.integers(x0 + 5, x1 - 5)), int(rng.integers(y0 + 5, y1 - 5))
+        cv2.ellipse(img, (x, y), (3, 5), 0, 0, 360, (30, 30, 30), 2, cv2.LINE_AA)
+
+
+def _draw_small_lettering(img: np.ndarray, text: str) -> None:
+    """Small text centred in bubble 2."""
+    h, w = img.shape[:2]
+    fx, fy, _, _ = _BUBBLE_LAYOUT[1]
+    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+    cv2.putText(img, text, (int(fx * w) - tw // 2, int(fy * h) + th // 2),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2, cv2.LINE_AA)
+
+
+def make_steam_grays():
+    """Return already-aligned `(reference_gray, target_gray, bubbles)` of one page size.
+
+    Same art on both, so the only differences are what the English edition changed:
+    a soft steam cloud touching bubble 3, and the lettering. Bubble 2 holds small
+    lettering on both sides (`"MM..."` in the reference), whose dots are far smaller
+    than its letters. `bubbles` are the padded bubble boxes `(x0, y0, x1, y1)`.
+    """
+    h, w = 1024, 610
+    art = _art(7, h, w, False)
+    _draw_skin(art)
+    target = art.copy()
+    _draw_bubbles(target, ["AAAA", "", "AAAA"])
+    _draw_small_lettering(target, "nn..")
+    ref = art.copy()
+    _draw_steam(ref)
+    _draw_bubbles(ref, ["HELLO", "", "HELLO"])
+    _draw_small_lettering(ref, _SMALL_LETTERING)
+    bubbles = [
+        (int((fx - fw) * w) - PAD, int((fy - fh) * h) - PAD,
+         int((fx + fw) * w) + PAD, int((fy + fh) * h) + PAD)
+        for fx, fy, fw, fh in _BUBBLE_LAYOUT
+    ]
+    return gray(ref), gray(target), bubbles
+
+
 def gray(img: np.ndarray) -> np.ndarray:
     """BGR -> single-channel grayscale (what `align` takes)."""
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
