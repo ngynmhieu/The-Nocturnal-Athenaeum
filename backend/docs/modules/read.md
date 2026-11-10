@@ -221,8 +221,12 @@ The translate-by-reference image pipeline: plain OpenCV on in-memory arrays, no
 Storage or DB. `translate_by_reference(target_bgr, reference_bgr)` returns an image
 the size of the target. `align.py` fits a similarity transform (SIFT, ratio test,
 RANSAC) and refuses poor fits; `regions.py` tone-matches the warped reference and
-groups the pixels that differ, keeping only groups the `TextClassifier` (today
-`GlyphHeuristic`, a seam for a trained detector later) calls lettering; `compose.py`
+groups the pixels that differ in both brightness and sharp ink (a black-hat), so
+steam an edition paints over the art and tiny line-art differences between scans
+never join or pass as lettering. It keeps only groups the `TextClassifier` (today
+`GlyphHeuristic`, a seam for a trained detector later) calls lettering: enough
+letter-sized marks (not halftone dots) on bubble paper. Text printed straight on the
+art, outside a bubble, is left alone by design. `compose.py`
 feathers those groups onto the target. Sizes are tuned at 1024 px and scale with
 page height. A refusal (`TranslateRefusal`) carries a user-facing message: poor
 alignment, or *"Nothing to translate"* when no text groups are found.

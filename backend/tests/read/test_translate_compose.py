@@ -5,7 +5,7 @@ import pytest
 from backend.app.modules.read.translate import TranslateRefusal, translate_by_reference
 from backend.app.modules.read.translate.regions import GlyphHeuristic, match_tone, text_mask
 
-from .conftest import edited_patch_box, furigana_boxes, gray, make_pair
+from .conftest import edited_patch_box, furigana_boxes, gray, make_pair, make_steam_grays, steam_box
 
 
 def test_bubbles_get_reference_text(pair):
@@ -64,3 +64,22 @@ def test_furigana_marks_are_replaced():
     for (x0, y0, x1, y1) in furigana_boxes():
         assert (target[y0:y1, x0:x1] < 200).any()  # the fixture really has a mark here
         assert out[y0:y1, x0:x1].min() >= 200  # and no ghost of it survives
+
+
+
+def test_steam_is_not_taken_for_lettering():
+    ref, tgt, bubbles = make_steam_grays()
+    mask = text_mask(ref, tgt, np.ones_like(tgt, bool))
+    outside = np.ones(tgt.shape, bool)
+    for (x0, y0, x1, y1) in bubbles:
+        outside[y0:y1, x0:x1] = False
+    x0, y0, x1, y1 = steam_box()
+    assert outside[y0:y1, x0:x1].any()  # the steam really reaches past the bubble
+    assert mask[outside].sum() == 0
+
+
+def test_every_bubble_is_found_despite_steam_and_small_lettering():
+    ref, tgt, bubbles = make_steam_grays()
+    mask = text_mask(ref, tgt, np.ones_like(tgt, bool))
+    for i, (x0, y0, x1, y1) in enumerate(bubbles):
+        assert mask[y0:y1, x0:x1].sum() > 0, f"bubble {i + 1} was not found"
